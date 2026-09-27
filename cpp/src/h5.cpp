@@ -228,7 +228,10 @@ File File::open_read(const std::string& path) {
   File f;
   f.id_ = Id(H5Fopen(path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT));
   if (!f.id_.valid()) {
-    throw Error("", "cannot open \"" + path + "\" as an HDF5 file");
+    // E01, as the Python and Julia readers say: a file that is not HDF5
+    // has no `format`, so it is not a mestra file. (It used to carry no
+    // rule and print as E41, which is for an object inside a file.)
+    throw Error("E01", "cannot open \"" + path + "\" as an HDF5 file");
   }
   return f;
 }

@@ -1973,9 +1973,10 @@ Report validate_pass(const std::string& path, bool metadata_only) {
     try {
       f = File::open_read(path);
     } catch (const Error& e) {
-      // E41: an object this reader cannot read, reported with its
-      // path.  The object here is the file.
-      r.errors.push_back({"E41", path, e.what()});
+      // E01, as the Python and Julia readers say: a file that will not
+      // open as HDF5 has no `format`, so it is not a mestra file. (This
+      // used to say E41, which is for an object inside a file.)
+      r.errors.push_back({"E01", path, without_id(e)});
       return r;
     }
     Validator v(f, &r, metadata_only);
