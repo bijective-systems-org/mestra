@@ -343,7 +343,11 @@ A reader treats every file as untrusted input: a malformed or hostile
 file gets a finding or a refusal that names the rule, never a crash, a
 hang, or an allocation that takes the machine with it. Links are never
 followed. Each language's README lists the rules its reader refuses to
-open a file on.
+open a file on. One thing no reader can promise is what the HDF5
+library does with damaged bytes before the reader runs: a crafted
+change to one byte of a valid file can fault the library itself, so a
+file nobody vouches for is best read from a process that can be
+killed, as the command line is (`compatibility.md`, "Damaged files").
 
 Because the layout is netCDF-4, other tools can open the file too, and
 `h5dump`, `ncdump` and xarray all work. Note that the reverse is not

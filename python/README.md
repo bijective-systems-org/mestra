@@ -77,6 +77,13 @@ The findings are on `dataset.problems` either way, `mestra.validate`
 repeats them, and what could not be copied is in `dataset.lossy`.
 `help(mestra.reader)` and `mestra.limits` carry the rest.
 
+A refusal is what this package can promise. What it cannot promise is
+that libhdf5 returns control on a file whose bytes were damaged: a
+crafted single-byte change can fault or hang the library before any
+code here runs (`../docs/compatibility.md`, "Damaged files";
+`tests/test_mutation.py` measures it). Read a file nobody vouches for
+from a process you can kill, as `mestra validate` does.
+
 
 Where to go next
 ----------------
