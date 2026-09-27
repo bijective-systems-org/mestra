@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 FINDING = re.compile(r"^([EW][0-9]{2}|!) (\S+): (.*)$")
 
@@ -47,6 +48,8 @@ EXPECTED = {
         "must": ["E16", "E41"],
         "must_not": [],
     },
+    "not_hdf5.mes": {"must": ["E01"], "must_not": ["E41"]},
+    "truncated.mes": {"must": ["E01"], "must_not": ["E41"]},
     "support_unknown_dataset.mes": {
         # A dataset this version does not know, in a group it does,
         # is a public object, and section 23's chunking rule holds
@@ -129,6 +132,21 @@ def main(argv):
     problems = []
     for name in names:
         check(arguments.cli, os.path.join(directory, name), problems)
+    # Two files made here rather than committed: one that is not HDF5 at
+    # all, and one cut short. Every reader in every language answers
+    # both with E01 -- no `format`, so not a mestra file -- and never
+    # with E41, which is for an object inside a file.
+    with tempfile.TemporaryDirectory() as made:
+        not_hdf5 = os.path.join(made, "not_hdf5.mes")
+        with open(not_hdf5, "wb") as fh:
+            fh.write(b"garbage")
+        with open(os.path.join(directory, names[0]), "rb") as fh:
+            whole = fh.read()
+        truncated = os.path.join(made, "truncated.mes")
+        with open(truncated, "wb") as fh:
+            fh.write(whole[: len(whole) // 2])
+        for path in (not_hdf5, truncated):
+            check(arguments.cli, path, problems)
 
     print("hostile files        %d" % len(names))
     print("commands run         %d" % (len(names) * 3))

@@ -39,8 +39,8 @@ classdef HostileTest < matlab.unittest.TestCase
         BUDGET = 30
 
         % The identifiers a caller may ever see from these files: a
-        % rule of section 14, or mestra:reader for a file that will
-        % not open at all.
+        % rule of section 14 (E01 for a file that will not open at
+        % all), or mestra:reader for a failure below the rules.
         ALLOWED = {'mestra:E01', 'mestra:reader', 'mestra:E19', ...
                    'mestra:E25', 'mestra:E26', 'mestra:E29', ...
                    'mestra:E40', 'mestra:E41'}

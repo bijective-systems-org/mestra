@@ -346,7 +346,9 @@ classdef Reader
             try
                 fid = H5F.open(path, 'H5F_ACC_RDONLY', 'H5P_DEFAULT');
             catch err
-                error('mestra:reader', ...
+                % E01, as every other reader says: a file that is not
+                % HDF5 has no `format`, so it is not a mestra file.
+                error('mestra:E01', ...
                       ['"%s" would not open as an HDF5 file: %s'], path, ...
                       regexprep(strtrim(err.message), '\s+', ' '));
             end
