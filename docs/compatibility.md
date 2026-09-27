@@ -29,6 +29,33 @@ reader and writer explicitly refuse them. Passing the shared corpus
 Convenience post-processing APIs also differ; consult each language's
 README. These implementation limits do not change a file's meaning.
 
+## Damaged files
+
+Every reader here treats a file as untrusted input, and the hostile
+subset of the corpus holds it to that: a finding or a refusal that
+names the rule, never a crash or a hang. That holds for every
+construction anybody has thought to build. It does not hold for
+every byte: the HDF5 library parses a file's metadata before any code
+of this repository runs, and on a crafted change to a single byte of
+an otherwise valid file it can fault or spin inside its own parser
+instead of returning an error. Measured on 2026-09-27 with
+`python/tests/test_mutation.py`: of 424 damaged copies of two corpus
+cases (truncations, single-bit flips, zeroed runs), 420 were answered
+by rule and 4 were lost in libhdf5 -- three faults and one hang, in
+attribute and dimension-scale reads and once at file close -- and the
+C++ reader, on a different libhdf5, lost 2 of the same set. Reading
+the damaged attribute raw, without the dimension-scale API, faults
+the same way, so there is no code path here that avoids it.
+
+What this means for a caller: the process boundary is the defence. The
+command line (`mestra validate`, `mestra info`, `mestra read`) is one,
+and a program that opens files nobody vouches for should do the same
+-- run the read in a child it can kill, as the hostile tests do. The
+truncation sweep is not affected: a truncated file is refused by rule
+(E01) at every length tried. Every language here links its own
+libhdf5, so which bytes are fatal differs between them, and a file
+that one reader answers may lose another.
+
 ## Replacing files
 
 Checked writers build beside the destination and publish only after
