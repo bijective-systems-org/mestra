@@ -1975,6 +1975,18 @@ def _is_iso_utc(text: Any) -> bool:
 
 # ------------------------------------------------------- a dataset only
 
+def _units_text(units: Any, where: str, error: Any, warn: Any) -> None:
+    """E19 for a units that is not text at all, W10 for text that
+    does not parse; an in-memory dataset can hold either."""
+    if units is None or units == "":
+        return
+    if not isinstance(units, str):
+        error("E19", where, "the attribute units is a string, and this "
+                            "is %s" % type(units).__name__)
+    elif not is_parseable(units):
+        warn("W10", where, "the units string %r does not parse" % units)
+
+
 def _validate_dataset(ds: Dataset) -> Report:
     """The rules an in-memory dataset can break.
 
@@ -2028,9 +2040,14 @@ def _validate_dataset(ds: Dataset) -> Report:
         counted[key.role] = counted.get(key.role, 0) + 1
         if key.role in ("design", "condition", "time") and not key.units:
             error("E39", where, "a %s key carries units" % key.role)
-        if key.units and not is_parseable(key.units):
-            warn("W10", where, "the units string %r does not parse"
-                 % key.units)
+        _units_text(key.units, where, error, warn)
+        bounds: list[tuple[str, Any]] = [("lower", key.lower),
+                                         ("upper", key.upper)]
+        for label, value in bounds:
+            if value is not None and not np.isfinite(float(value)):
+                error("E19", where, "the attribute %s declares a bound "
+                                    "and must be finite, and this is %r"
+                      % (label, value))
         if key.role in ("categorical", "group", "split", "status"):
             table = ds.categories.get(key.category or "")
             if table is None:
@@ -2080,9 +2097,7 @@ def _validate_dataset(ds: Dataset) -> Report:
         where = "/scalars/" + name
         if not slot.units:
             error("E11", where, "a scalar carries units")
-        elif not is_parseable(slot.units):
-            warn("W10", where, "the units string %r does not parse"
-                 % slot.units)
+        _units_text(slot.units, where, error, warn)
         _check_source(ds, slot, where, error)
         if slot.data is not None:
             values = np.asarray(slot.data.read())
@@ -2126,9 +2141,7 @@ def _validate_dataset(ds: Dataset) -> Report:
                                          "section 3" % array.role)
             if array.role == "field" and not array.units:
                 error("E11", slot_where, "a field carries units")
-            if array.units and not is_parseable(array.units):
-                warn("W10", slot_where, "the units string %r does not "
-                                        "parse" % array.units)
+            _units_text(array.units, slot_where, error, warn)
             if array.role == "derived" and not (array.derived_from
                                                 and array.recipe):
                 error("E13", slot_where, "a derived array carries "

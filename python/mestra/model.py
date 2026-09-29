@@ -1287,7 +1287,7 @@ class Dataset:
                    ", ".join(k.name for k in self.keys_of_role(role))),
                 name)
         if role in _INTEGER_KEY_ROLES:
-            given = np.asarray(values)
+            given = _numbers(values, None, name)
             if given.dtype.kind not in "iub":
                 raise MestraError(
                     "E20", "a %s key stores category ids, which are "
@@ -1296,13 +1296,13 @@ class Dataset:
                     name)
             array = given.astype(dtype or "<i4")
         elif role == "id":
-            array = np.asarray(values)
+            array = _numbers(values, None, name)
             if array.dtype.kind in "US":
                 array = array.astype(np.str_)
             else:
                 array = array.astype(dtype or "<i8")
         else:
-            array = np.asarray(values, dtype=dtype or "<f8")
+            array = _numbers(values, dtype or "<f8", name)
         if array.ndim != 1:
             raise MestraError(
                 "E04", "a key column has one dimension, row; these "
@@ -1313,6 +1313,7 @@ class Dataset:
             self.add_category_table(category, categories)
         _check_key_units(role, units, name)
         _check_key_table(self, role, category, array, name)
+        _check_bounds(lower, upper, name)
         if role in _UNIT_KEY_ROLES and bounds:
             lower, upper = _observed_bounds(array, lower, upper)
         key = Key(name, role, units=units, lower=lower, upper=upper,
@@ -1374,6 +1375,10 @@ class Dataset:
             raise MestraError(
                 "E11", "a scalar carries units; pass units= (\"1\" for "
                 "a dimensionless one)", name)
+        if not isinstance(units, str):
+            raise MestraError(
+                "E19", "units is a string, and this is %s; pass the "
+                "unit as text" % type(units).__name__, name)
         _check_statistic(statistic, of, quantile, name, level, method,
                          served=callable_id is not None)
         if callable_id is not None:
@@ -1394,7 +1399,7 @@ class Dataset:
                 "E30", "a scalar holding data needs values; pass "
                 "values=, or add_callable_slot for a slot a callable "
                 "serves", name)
-        array = np.asarray(values, dtype="<f8")
+        array = _numbers(values, "<f8", name)
         if array.ndim != 1:
             raise MestraError(
                 "E04", "a scalar has one dimension, row; these values "
@@ -1461,8 +1466,8 @@ class Dataset:
                 "E33", "this dataset already has a support called %r; "
                 "give this one another name" % name, name)
         coords = None if coordinates is None else _shape_array(
-            np.asarray(coordinates, dtype="<f8"), "node", varies, None,
-            "coordinates")
+            _numbers(coordinates, "<f8", name + "/coordinates"), "node",
+            varies, None, "coordinates")
         if kind is None:
             if cells is not None:
                 kind = "mesh"
@@ -1740,18 +1745,52 @@ def _as_array(values: Any, role: str, dtype: Any, name: str
             "E30", "a slot holding data needs values; pass values=, or "
             "add_callable_slot for a slot a callable serves", name)
     if role == "label":
-        array = np.asarray(values, dtype=dtype or "<i4")
+        array = _numbers(values, dtype or "<i4", name)
         if array.dtype.kind not in "iu":
             raise MestraError(
                 "E20", "a label is int32 or int64, and these values are "
                 "%s; pass integer category ids" % array.dtype, name)
         return array
-    array = np.asarray(values, dtype=dtype or "<f8")
+    array = _numbers(values, dtype or "<f8", name)
     if array.dtype != np.dtype("<f8"):
         raise MestraError(
             "E20", "a %s array is float64, and these values are %s"
             % (role, array.dtype), name)
     return array
+
+
+def _numbers(values: Any, dtype: Any, name: str) -> np.ndarray:
+    """`values` as one rectangular array, or E20 naming the argument.
+
+    numpy's own refusals are about an inhomogeneous shape or a
+    string it cannot convert, and a caller building a file should be
+    told which argument and what to pass.
+    """
+    try:
+        return np.asarray(values, dtype=dtype)
+    except (ValueError, TypeError) as exc:
+        want = ("numbers" if dtype is None
+                else "values of dtype %s" % np.dtype(dtype))
+        raise MestraError(
+            "E20", "values must be a rectangular array of %s, and these "
+            "are not (%s); pass one value per row and the same shape "
+            "in every row" % (want, exc), name) from None
+
+
+def _check_bounds(lower: Any, upper: Any, name: str) -> None:
+    """E19: a bound the caller declares is finite (section 18)."""
+    for label, value in (("lower", lower), ("upper", upper)):
+        if value is None:
+            continue
+        try:
+            finite = np.isfinite(float(value))
+        except (TypeError, ValueError):
+            finite = False
+        if not finite:
+            raise MestraError(
+                "E19", "%s is a finite float64 bound, and %r is not; "
+                "pass a number, or leave it out for the observed one"
+                % (label, value), name)
 
 
 def _observed_bounds(array: np.ndarray, lower: float | None,
@@ -1777,6 +1816,11 @@ def _observed_bounds(array: np.ndarray, lower: float | None,
 
 def _check_key_units(role: str, units: str | None, name: str) -> None:
     """E39: which key roles carry units, and which do not."""
+    if units is not None and not isinstance(units, str):
+        raise MestraError(
+            "E19", "units is a string, and this is %s; pass the unit "
+            "as text, \"1\" for a dimensionless one"
+            % type(units).__name__, name)
     if role in _UNIT_KEY_ROLES and not units:
         raise MestraError(
             "E39", "a %s key carries units; pass units= (\"1\" for a "
