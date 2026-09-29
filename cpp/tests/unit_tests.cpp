@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -663,6 +664,50 @@ void conventions_write() {
                  findings.find("error(s)") != std::string::npos);
   check::is_true("nothing was left behind",
                  std::ifstream(other.c_str()).good() == false);
+  // A destination that cannot take a file is refused before anything
+  // is staged, naming `path`, and with `check = false` as well: the
+  // staging happens in the destination's directory either way.
+  {
+    namespace fs = std::filesystem;
+    const std::string dir = "mestra_unit_destination_dir";
+    fs::remove_all(dir);
+    fs::create_directory(dir);
+    mestra::WriteOptions unchecked;
+    unchecked.check = false;
+    for (const bool checked : {true, false}) {
+      const mestra::WriteOptions& opt = checked ? mestra::WriteOptions()
+                                                : unchecked;
+      std::string why;
+      check::equal("an empty path is refused",
+                   rule_of([&d, &opt] { mestra::write(d, "", opt); }, &why),
+                   std::string(""));
+      check::is_true("the empty path refusal says so",
+                     why.find("path is empty") != std::string::npos);
+      check::equal("a directory is refused as a destination",
+                   rule_of([&d, &dir, &opt] { mestra::write(d, dir, opt); },
+                           &why),
+                   std::string(""));
+      check::is_true("the directory refusal names the path",
+                     why.find("names a directory") != std::string::npos &&
+                         why.find(dir) != std::string::npos);
+      const std::string missing = "mestra_unit_no_such_dir/out.mes";
+      check::equal("a missing parent directory is refused",
+                   rule_of([&d, &missing, &opt] {
+                     mestra::write(d, missing, opt);
+                   }, &why),
+                   std::string(""));
+      check::is_true("the missing-parent refusal names the directory",
+                     why.find("does not exist") != std::string::npos &&
+                         why.find("mestra_unit_no_such_dir") !=
+                             std::string::npos);
+      check::is_true("a refused destination stages nothing",
+                     !fs::exists(std::string(".mestra-writing")) &&
+                         !fs::exists(dir + ".mestra-writing") &&
+                         !fs::exists("mestra_unit_no_such_dir"));
+    }
+    fs::remove_all(dir);
+  }
+
   // A read is strict about the structural rules and silent about the
   // semantic ones, so a file with a missing unit still opens.
   const mestra::Dataset clean = mestra::read(path);
