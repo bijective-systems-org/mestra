@@ -302,6 +302,12 @@ class Affine(Callable):
                     "shape, and a band as uncertainty, level and "
                     "method, and nothing else; this one also holds %s"
                     % ", ".join(sorted(extra)), str(name))
+            missing = _AFFINE_KEYS - set(entry)
+            if missing:
+                raise MestraError(
+                    "section 27", "an affine output holds A, b and "
+                    "shape; this one has no %s"
+                    % ", ".join(sorted(missing)), str(name))
             band_keys = set(entry) & _BAND_KEYS
             if band_keys and band_keys != _BAND_KEYS:
                 raise MestraError(
@@ -382,6 +388,12 @@ class Affine(Callable):
                 "section 27", "an affine dictionary holds keys and "
                 "outputs and nothing else; this one also holds %s"
                 % ", ".join(sorted(extra)))
+        missing = {"keys", "outputs"} - set(d)
+        if missing:
+            raise MestraError(
+                "section 27", "an affine dictionary holds keys and "
+                "outputs; this one has no %s"
+                % ", ".join(sorted(missing)))
         keys = [str(k) for k in d["keys"]]
         return cls(keys, d["outputs"])
 
