@@ -28,6 +28,66 @@ function to_stored(data::AbstractArray, dims, want::Vector{Symbol}, path)
     return permutedims(collect(a), perm)
 end
 
+"""E33 at build time: a name the file could not hold.  The writer
+checks again for a name changed after building; this is so that the
+call that made the mistake is the one that is refused."""
+function check_name(name::AbstractString, path)
+    legal_name(name) || throw(MestraError("E33", path,
+        "`$(name)` is not a legal netCDF-4 name: letters, digits, `_`, " *
+        "`-`, `.` and `+` only, and no `/`; pass another `name`"))
+    reserved(name) && throw(MestraError("E33", path,
+        "names beginning with `$(RESERVED_PREFIX)` are reserved for the " *
+        "container; pass another `name`"))
+    return String(name)
+end
+
+"""`values` as one rectangular array of `T`, or E20 naming the slot
+and the argument.  What `convert` says about a ragged array, text
+where a number belongs or a value `T` cannot hold is a `MethodError`
+or an `InexactError` that names no argument, and a caller building a
+file should be told which one and what to pass.  `T` of `nothing`
+keeps the array's own element type, checking only that every element
+is a number."""
+function numbers(values, T::Union{Nothing,Type}, path;
+                 argument::AbstractString = "values")
+    a = values isa AbstractArray ? values : collect(values)
+    accepted = T === nothing ? Real :
+               T <: AbstractString ? AbstractString :
+               T <: Integer ? Integer : Real
+    what = accepted === AbstractString ? "strings" :
+           accepted === Integer ? "integers" : "numbers"
+    i = Base.eltype(a) <: accepted ? nothing :
+        findfirst(x -> !(x isa accepted), a)
+    if i !== nothing
+        x = a[i]
+        throw(MestraError("E20", path, x isa AbstractArray ?
+            "`$(argument)` must be one rectangular array of $(what), and " *
+            "this is a $(typeof(a)), an array of arrays; pass one array " *
+            "with one axis per dimension and the same shape in every row" :
+            "`$(argument)` must be a rectangular array of $(what), and " *
+            "these hold a $(typeof(x)) ($(repr(x))); pass $(what)"))
+    end
+    T === nothing && return a
+    try
+        return convert(Array{T}, a)
+    catch e
+        e isa InexactError || rethrow()
+        throw(MestraError("E20", path,
+            "`$(argument)` must be $(what) that $(T) can hold, and " *
+            "$(repr(e.val)) is not; pass `eltype`, or convert the array"))
+    end
+end
+
+"""E19 at build time: `units` is text (section 18), and the writer
+never has to reject its own file over a number where a unit belongs."""
+function check_units(units, path)
+    (units === nothing || units isa AbstractString) ||
+        throw(MestraError("E19", path,
+            "`units` is text, and this $(typeof(units)) is not; pass the " *
+            "unit as a string, \"1\" for a dimensionless one"))
+    return units
+end
+
 """The path an array slot will have, which a refusal names before the
 slot exists."""
 array_path(sup::Support, name::AbstractString, location::Symbol) =
@@ -67,6 +127,7 @@ A category table.  Category ids are the zero-based positions of the
 entries (section 21), so the first entry is id 0.
 """
 function add_category_table!(ds::Dataset, name::AbstractString, entries)
+    check_name(name, "/categories/" * String(name))
     ds.categories[String(name)] = CategoryTable(name, collect(entries))
     push!(ds.container_groups, "categories")
     return ds.categories[String(name)]
@@ -95,9 +156,11 @@ function add_key!(ds::Dataset, name::AbstractString, values;
                   trajectory_group = nothing, parent = nothing,
                   eltype = nothing)
     path = "/keys/" * String(name)
+    check_name(name, path)
     role in KEY_ROLES || throw(MestraError("E02", path,
         "`$(role)` is not a key role of section 3; pass `role` as one of " *
         join(string.(KEY_ROLES), ", ")))
+    check_units(units, path)
     # `bounds = (lo, hi)`, `bounds = nothing` and `bounds = :auto` are
     # the older spelling of the same three choices.
     if bounds !== :unset
@@ -105,9 +168,12 @@ function add_key!(ds::Dataset, name::AbstractString, values;
                        bounds === :auto ? (:auto, :auto) :
                        (bounds[1], bounds[2])
     end
-    vals = collect(values)
-    T = eltype === nothing ? default_key_eltype(role, vals) : eltype
-    vals = T === String ? String.(vals) : convert(Vector{T}, vals)
+    given = values isa AbstractArray ? values : collect(values)
+    T = eltype === nothing ? default_key_eltype(role, given) : eltype
+    vals = numbers(given, T, path)
+    ndims(vals) == 1 || throw(MestraError("E04", path,
+        "a key column has one dimension, row, and these values have " *
+        "$(ndims(vals)); pass one value per row"))
     if isempty(ds.keys) && isempty(ds.scalars)
         ds.nrows = length(vals)
     end
@@ -124,6 +190,12 @@ function add_key!(ds::Dataset, name::AbstractString, values;
         throw(MestraError("E39", path,
             "a $(role) key requires `units`, a UDUNITS string such as " *
             "\"m s-1\" or \"1\" for a dimensionless one"))
+    end
+    if !(role in (:design, :condition, :time)) && units !== nothing
+        throw(MestraError("E39", path,
+            "a $(role) key carries no units, because its values are " *
+            (role === :id ? "row identifiers" : "category ids") *
+            "; drop `units`"))
     end
     k = KeyColumn(name, role; units = units, lower = lo, upper = hi,
                   category = category, trajectory_group = trajectory_group,
@@ -181,12 +253,21 @@ function key_bounds(role::Symbol, vals, lower, upper, path)
     (lower === :auto || upper === :auto || lower === nothing ||
      upper === nothing) && throw(MestraError("E19", path,
         "pass `lower` and `upper` together, or neither"))
-    lo, hi = Float64(lower), Float64(upper)
-    (isfinite(lo) && isfinite(hi)) || throw(MestraError("E19", path,
-        "a bound must be finite, and these are [$(lo), $(hi)]"))
+    lo = finite_bound("lower", lower, path)
+    hi = finite_bound("upper", upper, path)
     lo <= hi || throw(MestraError("E19", path,
         "`lower` is $(lo) and `upper` is $(hi); the lower bound comes first"))
     return (lo, hi)
+end
+
+"""E19 at build time: a bound the caller declares is a finite number
+(section 18), named by the argument it came in as."""
+function finite_bound(argument::AbstractString, value, path)
+    (value isa Real && isfinite(value)) || throw(MestraError("E19", path,
+        "`$(argument)` is a finite float64 bound, and $(repr(value)) is " *
+        "not; pass a number, or leave both bounds out for the observed " *
+        "range"))
+    return Float64(value)
 end
 
 default_key_eltype(role::Symbol, vals) =
@@ -208,13 +289,17 @@ function add_scalar!(ds::Dataset, name::AbstractString, values;
                      of = nothing, quantile = nothing, level = nothing,
                      method = nothing, deflate = nothing,
                      shuffle::Bool = false)
-    units isa AbstractString || throw(MestraError("E11",
-        "/scalars/" * String(name),
+    path = "/scalars/" * String(name)
+    check_name(name, path)
+    units === nothing && throw(MestraError("E11", path,
         "a scalar carries units; pass units = \"1\" for a dimensionless " *
         "one"))
-    check_statistic(statistic, of, quantile, level, method, false,
-                    "/scalars/" * String(name))
-    vals = convert(Vector{Float64}, collect(values))
+    check_units(units, path)
+    check_statistic(statistic, of, quantile, level, method, false, path)
+    vals = numbers(values, Float64, path)
+    ndims(vals) == 1 || throw(MestraError("E04", path,
+        "a scalar has one dimension, row, and these values have " *
+        "$(ndims(vals)); pass one value per row"))
     if isempty(ds.keys) && isempty(ds.scalars)
         ds.nrows = length(vals)
     end
@@ -252,6 +337,7 @@ function add_mesh_support!(ds::Dataset, name::AbstractString;
                            cell_connectivity, units::AbstractString = "m",
                            dims = nothing, varies = nothing,
                            n_nodes = nothing)
+    check_name(name, "/supports/" * String(name))
     types = UInt8.(collect(cell_types))
     offsets = Int64.(collect(cell_offsets))
     conn = Int64.(collect(cell_connectivity))
@@ -268,6 +354,8 @@ function add_mesh_support!(ds::Dataset, name::AbstractString;
         s.support_id = support_id(s)
         return s
     end
+    coordinates = numbers(coordinates, Float64, "/supports/$(name)/coordinates";
+                          argument = "coordinates")
     dims === nothing && (dims = ndims(coordinates) == 2 ?
                                 [:node, :component] :
                                 [:row, :node, :component])
@@ -292,9 +380,10 @@ coordinate is part of its identity, so it must not vary (E35).
 """
 function add_axis_support!(ds::Dataset, name::AbstractString;
                            coordinates, units::AbstractString)
-    c = ndims(coordinates) == 1 ? reshape(collect(coordinates),
-                                          length(coordinates), 1) :
-        collect(coordinates)
+    check_name(name, "/supports/" * String(name))
+    c = numbers(coordinates, Float64, "/supports/$(name)/coordinates";
+                argument = "coordinates")
+    ndims(c) == 1 && (c = reshape(c, length(c), 1))
     s = Support(name, "axis"; n_nodes = size(c, 1), n_cells = 0)
     s.coordinates = make_array_slot(ds, s, "coordinates", c, :node;
                                     role = :coordinates, units = units,
@@ -313,6 +402,7 @@ A support of kind none: no nodes, no cells and no coordinates.  It
 exists so that a slot may say it lives on no support.
 """
 function add_none_support!(ds::Dataset, name::AbstractString)
+    check_name(name, "/supports/" * String(name))
     s = Support(name, "none"; n_nodes = 0, n_cells = 0)
     push!(ds.supports, s)
     push!(ds.container_groups, "supports")
@@ -372,14 +462,18 @@ function make_array_slot(ds::Dataset, sup::Support, name::AbstractString,
                          eltype = nothing, deflate = nothing,
                          shuffle = false)
     path = array_path(sup, name, location)
+    name == "coordinates" || check_name(name, path)
     check_statistic(statistic, of, quantile, level, method, false, path)
     role in ARRAY_ROLES || throw(MestraError("E02", path,
         "`$(role)` is not an array role of section 3; pass `role` as one " *
         "of " * join(string.(ARRAY_ROLES), ", ")))
-    role === :field && !(units isa AbstractString) &&
+    role === :field && units === nothing &&
         throw(MestraError("E11", path,
             "a field carries units; pass units = \"1\" for a " *
             "dimensionless one"))
+    check_units(units, path)
+    data = numbers(data, eltype, path;
+                   argument = name == "coordinates" ? "coordinates" : "values")
     nsite = location === :cell ? sup.n_cells : sup.n_nodes
     dims === nothing && (dims = default_dims(data, nsite, location, path))
     dims = Symbol[Symbol(d) for d in dims]
@@ -467,6 +561,7 @@ slots.  Fill a slot from it with `set_callable!`.
 function add_callable!(ds::Dataset, id::AbstractString, c::Callable;
                        type::Union{Nothing,AbstractString} = nothing,
                        repr::Union{Nothing,AbstractString} = nothing)
+    check_name(id, "/callables/" * String(id))
     ty = type === nothing ? registered_name(typeof(c)) : String(type)
     ty === nothing && throw(MestraError("E15", "/callables/" * String(id),
         "no `type` string is registered for $(typeof(c)); call " *
@@ -531,6 +626,7 @@ function add_callable_slot!(ds::Dataset, sup::Support, name::AbstractString;
                             output::AbstractString,
                             varies::AbstractString = "row",
                             statistic = nothing, of = nothing)
+    check_name(name, array_path(sup, name, location))
     id = callable_name(callable, id, array_path(sup, name, location))
     check_statistic(statistic, of, nothing, nothing, nothing, true,
                     array_path(sup, name, location))
@@ -588,6 +684,7 @@ function add_callable_scalar!(ds::Dataset, name::AbstractString;
                               units::AbstractString, callable = nothing,
                               id = nothing, output::AbstractString,
                               statistic = nothing, of = nothing)
+    check_name(name, "/scalars/" * String(name))
     id = callable_name(callable, id, "/scalars/" * String(name))
     check_statistic(statistic, of, nothing, nothing, nothing, true,
                     "/scalars/" * String(name))

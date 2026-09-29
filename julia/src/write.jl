@@ -177,6 +177,7 @@ interpreting it.
 """
 function write(ds::Dataset, path::AbstractString; check::Bool = true)
     prepare_for_write!(ds)
+    check_destination(String(path))
     if ds.path !== nothing && any_unread(ds) &&
        abspath(String(path)) == abspath(ds.path)
         throw(MestraError(nothing, String(path),
@@ -221,6 +222,29 @@ function write(ds::Dataset, path::AbstractString; check::Bool = true)
         directory === nothing || rm(directory; recursive = true, force = true)
     end
     return target
+end
+
+"""The staging and the publish both happen in the destination's
+directory (`docs/compatibility.md`, "Replacing files"), so a
+destination that cannot take a file is refused here, naming `path`,
+before anything is validated, staged or created.  An I/O failure after
+this point is the operating system's error, and leaves an existing
+destination as it was."""
+function check_destination(path::String)
+    isempty(path) && throw(MestraError(nothing,
+        "`path` is empty; pass the name of the file to write"))
+    isdir(path) && throw(MestraError(nothing, path,
+        "`path` names a directory, which a file cannot replace; pass a " *
+        "file name"))
+    parent = dirname(abspath(path))
+    isdir(parent) || throw(MestraError(nothing, path,
+        "the directory $(parent) does not exist; the file is staged and " *
+        "published there, so create it first"))
+    (Sys.iswritable(parent) && Sys.isexecutable(parent)) ||
+        throw(MestraError(nothing, path,
+            "the directory $(parent) is not writable; the file is staged " *
+            "and published there"))
+    return path
 end
 
 function publish_file(source::AbstractString, target::AbstractString)

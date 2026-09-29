@@ -727,6 +727,134 @@ end
           nothing
 end
 
+@testset "data that cannot be written is refused by name (E20)" begin
+    # `convert`'s refusal of a ragged array names no argument; the
+    # builder's names the slot and says what shape to pass
+    ds = Mestra.Dataset(writer = "t")
+    Mestra.add_key!(ds, "mach", [0.4, 0.8]; role = :condition, units = "1")
+    e = refusal(() -> Mestra.add_scalar!(ds, "cl", [[0.1, 0.2], [0.3]];
+                                         units = "1"))
+    @test e !== nothing && e.rule == "E20" && e.path == "/scalars/cl"
+    @test occursin("rectangular", e.msg) && occursin("`values`", e.msg)
+    axis = Mestra.add_axis_support!(ds, "t"; coordinates = [0.0, 1.0, 2.0],
+                                    units = "s")
+    e = refusal(() -> Mestra.add_node_array!(ds, axis, "p",
+            [[[1.0], [2.0], [3.0]], [[1.0], [2.0]]];
+            units = "Pa", dims = (:row, :node, :component)))
+    @test e !== nothing && e.rule == "E20"
+    @test e.path == "/supports/t/node_arrays/p"
+    e = refusal(() -> Mestra.add_axis_support!(ds, "u";
+            coordinates = [[0.0], [1.0, 2.0]], units = "s"))
+    @test e !== nothing && e.rule == "E20"
+    @test e.path == "/supports/u/coordinates" && occursin("`coordinates`", e.msg)
+    # text where a number belongs, and a float where a category id belongs
+    e = refusal(() -> Mestra.add_key!(ds, "speed", ["fast", "faster"];
+                                      role = :condition, units = "1"))
+    @test e !== nothing && e.rule == "E20" && e.path == "/keys/speed"
+    @test occursin("String", e.msg)
+    Mestra.add_category_table!(ds, "split", ["train", "test"])
+    e = refusal(() -> Mestra.add_key!(ds, "split", [0.0, 1.0]; role = :split,
+                                      category = "split"))
+    @test e !== nothing && e.rule == "E20" && occursin("integers", e.msg)
+    # a key or a scalar is one column
+    e = refusal(() -> Mestra.add_key!(ds, "alpha", [1.0 2.0; 3.0 4.0];
+                                      role = :condition, units = "1"))
+    @test e !== nothing && e.rule == "E04" && occursin("one value per row", e.msg)
+    # nothing above touched the dataset
+    @test collect(keys(ds.keys)) == ["mach"] && isempty(ds.scalars)
+    @test [s.name for s in ds.supports] == ["t"]
+end
+
+@testset "a bound that is not finite, and units that are not text (E19)" begin
+    # Section 18: a bound is finite and units are text.  At build time
+    # by the builder, naming the argument, and at write time when they
+    # were assigned afterwards, so that the writer never emits what its
+    # validator would refuse.
+    ds = Mestra.Dataset(writer = "t")
+    e = refusal(() -> Mestra.add_key!(ds, "mach", [0.4, 0.8];
+                                      role = :condition, units = "1",
+                                      lower = NaN, upper = 1.0))
+    @test e !== nothing && e.rule == "E19" && e.path == "/keys/mach"
+    @test occursin("`lower`", e.msg) && occursin("NaN", e.msg)
+    e = refusal(() -> Mestra.add_key!(ds, "mach", [0.4, 0.8];
+                                      role = :condition, units = "1",
+                                      lower = 0.0, upper = "one"))
+    @test e !== nothing && e.rule == "E19" && occursin("`upper`", e.msg)
+    e = refusal(() -> Mestra.add_key!(ds, "mach", [0.4, 0.8];
+                                      role = :condition, units = 1))
+    @test e !== nothing && e.rule == "E19" && e.path == "/keys/mach"
+    @test occursin("`units`", e.msg) && occursin("Int64", e.msg)
+    Mestra.add_key!(ds, "mach", [0.4, 0.8]; role = :condition, units = "1")
+    # the other half of E39: a key whose values are identifiers or
+    # category ids carries no units at all
+    e = refusal(() -> Mestra.add_key!(ds, "run", ["a", "b"]; role = :id,
+                                      units = "1"))
+    @test e !== nothing && e.rule == "E39" && e.path == "/keys/run"
+    @test occursin("row identifiers", e.msg) && occursin("`units`", e.msg)
+    Mestra.add_category_table!(ds, "fold", ["train", "test"])
+    e = refusal(() -> Mestra.add_key!(ds, "fold", Int32[0, 1]; role = :split,
+                                      category = "fold", units = "1"))
+    @test e !== nothing && e.rule == "E39" && occursin("category ids", e.msg)
+    e = refusal(() -> Mestra.add_scalar!(ds, "cl", [0.1, 0.2]; units = 1))
+    @test e !== nothing && e.rule == "E19" && e.path == "/scalars/cl"
+    @test refusal(() -> Mestra.add_scalar!(ds, "cl", [0.1, 0.2])).rule == "E11"
+    axis = Mestra.add_axis_support!(ds, "t"; coordinates = [0.0, 1.0, 2.0],
+                                    units = "s")
+    e = refusal(() -> Mestra.add_node_array!(ds, axis, "p", rand(2, 3);
+                                             units = 7))
+    @test e !== nothing && e.rule == "E19"
+    @test e.path == "/supports/t/node_arrays/p"
+    # assigned after the build, the validator refuses the write with the
+    # same rule, and nothing is written
+    Mestra.add_scalar!(ds, "cl", [0.1, 0.2]; units = "1")
+    ds.keys["mach"].upper = Inf
+    path = joinpath(SCRATCH, "bound.mes")
+    e = refusal(() -> Mestra.write(ds, path))
+    @test e !== nothing && e.rule == "E19" && occursin("/keys/mach", e.msg)
+    @test !isfile(path)
+    ds.keys["mach"].upper = 0.8
+    Mestra.write(ds, path)
+    @test Mestra.validate(path).errors == String[]
+end
+
+@testset "a name the file could not hold is refused at build time (E33)" begin
+    # Not at write time, when the call that made the mistake is long
+    # gone: every builder that takes a name checks it, and the dataset
+    # is left as it was
+    ds = Mestra.Dataset(writer = "t")
+    Mestra.add_key!(ds, "mach", [0.4, 0.8]; role = :condition, units = "1")
+    axis = Mestra.add_axis_support!(ds, "t"; coordinates = [0.0, 1.0, 2.0],
+                                    units = "s")
+    calls = [
+        () -> Mestra.add_key!(ds, "a/b", [1.0, 2.0]; role = :condition,
+                              units = "1"),
+        () -> Mestra.add_scalar!(ds, "a/b", [1.0, 2.0]; units = "1"),
+        () -> Mestra.add_category_table!(ds, "a/b", ["x"]),
+        () -> Mestra.add_axis_support!(ds, "a/b"; coordinates = [0.0],
+                                       units = "s"),
+        () -> Mestra.add_none_support!(ds, "a/b"),
+        () -> Mestra.add_node_array!(ds, axis, "a/b", rand(2, 3);
+                                     units = "Pa"),
+        () -> Mestra.add_cell_array!(ds, axis, "mach number", rand(2, 0);
+                                     units = "Pa", dims = (:row, :cell)),
+        () -> Mestra.add_callable!(ds, "a/b", Mestra.Affine(["mach"], Dict{String,Mestra.AffineOutput}())),
+        () -> Mestra.add_callable_scalar!(ds, "mestra_cl"; units = "1",
+                                          callable = "f", output = "cl"),
+        () -> Mestra.add_callable_slot!(ds, axis, "a/b"; units = "1",
+                                        components = 1, callable = "f",
+                                        output = "p"),
+    ]
+    for call in calls
+        e = refusal(call)
+        @test e !== nothing && e.rule == "E33"
+        @test occursin("`name`", e.msg)
+    end
+    @test collect(keys(ds.keys)) == ["mach"] && isempty(ds.scalars)
+    @test isempty(ds.categories) && isempty(ds.callables)
+    @test [s.name for s in ds.supports] == ["t"]
+    @test isempty(axis.node_arrays) && isempty(axis.cell_arrays)
+end
+
 @testset "building a model file with a callable slot" begin
     ds = Mestra.Dataset(writer = "mestra.jl test 0",
                         created = "2026-09-19T00:00:00Z")
@@ -1366,9 +1494,48 @@ end
         # Never remove a directory or move the staged file inside it.
         blocked = joinpath(directory, "directory.mes")
         mkdir(blocked)
-        @test_throws Base.IOError Mestra.write(ds, blocked)
+        @test refusal(() -> Mestra.write(ds, blocked)) !== nothing
         @test isdir(blocked) && isempty(readdir(blocked))
         @test Set(readdir(directory)) == Set(["result.mes", "directory.mes"])
+    end
+end
+
+@testset "a destination that cannot take a file is refused first" begin
+    # The staging and the publish both happen in the destination's
+    # directory (docs/compatibility.md, "Replacing files"), so a
+    # destination that cannot take a file is refused before anything
+    # is validated or staged, with a MestraError naming the path and
+    # nothing left behind -- and not, as it was, with the IOError of
+    # whichever step ran into it, after a staging directory was made.
+    mktempdir() do directory
+        ds, _ = six_node_dataset()
+        a_directory = joinpath(directory, "taken.mes")
+        mkdir(a_directory)
+        sealed = joinpath(directory, "sealed")
+        mkdir(sealed)
+        chmod(sealed, 0o500)
+        try
+            for (path, said) in ((a_directory, "names a directory"),
+                                 (joinpath(sealed, "x.mes"), "not writable"),
+                                 (joinpath(directory, "gone", "x.mes"),
+                                  "does not exist"))
+                for check in (true, false)
+                    e = refusal(() -> Mestra.write(ds, path; check = check))
+                    @test e !== nothing && e.rule === nothing
+                    @test e.path == path && occursin(said, e.msg)
+                end
+            end
+            e = refusal(() -> Mestra.write(ds, ""))
+            @test e !== nothing && e.rule === nothing && e.path === nothing
+            @test occursin("`path` is empty", e.msg)
+        finally
+            chmod(sealed, 0o700)
+        end
+        @test sort(readdir(directory)) == ["sealed", "taken.mes"]
+        @test isempty(readdir(a_directory)) && isempty(readdir(sealed))
+        # the empty path was refused before a staging directory was made
+        # beside it, which would have been in the working directory
+        @test !any(startswith(".mestra-"), readdir(pwd()))
     end
 end
 
