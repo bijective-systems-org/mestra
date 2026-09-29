@@ -360,9 +360,13 @@ classdef HostileTest < matlab.unittest.TestCase
                 'node_arrays that is a dataset holds no arrays');
             testCase.verifyEmpty({d.categories.name}, ...
                 'a category table that is a group is not a table');
+            % An object of the wrong kind is one the reader cannot read
+            % as what its place says it is: E41 in every language, and
+            % not a missing attribute (E39) or a missing type (E15).
             r = mestra.validate(path);
-            testCase.verifyTrue(ismember('E39', r.errors) || ...
-                                ismember('E15', r.errors));
+            testCase.verifyTrue(ismember('E41', r.errors));
+            testCase.verifyFalse(ismember('E39', r.errors));
+            testCase.verifyFalse(ismember('E15', r.errors));
         end
 
         function filtersDoNotUpsetTheDescription(testCase)

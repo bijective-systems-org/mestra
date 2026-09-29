@@ -381,6 +381,9 @@ class _FileValidator:
                     self.keys[member.name] = member.obj
                     if _attr(member.obj, "role") == "group":
                         self.group_keys.append(member.name)
+                else:
+                    self.note("/keys/" + member.name,
+                              "a key is a dataset, and this is a group")
         group = self._root_group("supports")
         if group is not None:
             self.support_names = sorted(
@@ -1135,7 +1138,8 @@ class _FileValidator:
             where = "/callables/" + name
             self._name(name, where)
             if not isinstance(obj, h5py.Group):
-                self.error("E15", where, "a callable is a group")
+                self.note(where, "a callable is a group, and this is a "
+                                 "dataset")
                 continue
             self.guarded(where, self._dictionary_of, obj, where)
 

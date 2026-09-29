@@ -439,9 +439,8 @@ function checkKeys(ctx)
         checkName(ctx, name{1}, path);
         if ~followable(ctx, g, name{1}, path), continue, end
         if ~strcmp(H5.childType(g, name{1}), 'dataset')
-            rep.add('E39', path, 'a key must be a dataset');
             rep.add('E41', path, ...
-                'a key that is not a dataset cannot be read as one');
+                'a key is a dataset, and this is not one, so there is no key column here to read');
             continue
         end
         role = guard(ctx, path, @() checkOneKey(ctx, g, name{1}, path), '');
@@ -717,8 +716,8 @@ function checkOneScalar(ctx, g, name, path)
         isGroup = false;
         oid = H5.openDataset(g, name);
     else
-        ctx.rep.add('E39', path, 'a scalar must be a dataset or a group');
-        ctx.rep.add('E41', path, 'this scalar cannot be read');
+        ctx.rep.add('E41', path, ...
+            'a scalar is a dataset or a group, and this is neither, so there is nothing here to read');
         return
     end
     checkAttrEncodings(ctx, oid, path);
@@ -830,9 +829,8 @@ function checkSupports(ctx)
         checkName(ctx, name, path);
         if ~followable(ctx, g, name, path), continue, end
         if ~strcmp(H5.childType(g, name), 'group')
-            ctx.rep.add('E39', path, 'a support must be a group');
             ctx.rep.add('E41', path, ...
-                'a support that is not a group cannot be read as one');
+                'a support is a group, and this is not one, so there is no support here to read');
             continue
         end
         index = i - 1;
@@ -936,9 +934,9 @@ function checkOneSupport(ctx, parent, name, index)
         if ~has(pairs{p, 1}), continue, end
         groupPath = [path '/' pairs{p, 1}];
         if ~strcmp(H5.childType(sid, pairs{p, 1}), 'group')
-            rep.add('E39', groupPath, '%s must be a group', pairs{p, 1});
             rep.add('E41', groupPath, ...
-                '%s is not a group and cannot be read as one', pairs{p, 1});
+                '%s is a group of slots, and this is not a group, so there are no slots here to read', ...
+                pairs{p, 1});
             continue
         end
         ag = H5.openGroup(sid, pairs{p, 1});
@@ -1076,8 +1074,8 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
     elseif strcmp(kind_, 'dataset')
         oid = H5D.open(parent, name);
     else
-        rep.add('E39', path, 'a slot must be a dataset or a group');
-        rep.add('E41', path, 'this slot cannot be read');
+        rep.add('E41', path, ...
+            'a slot is a dataset or a group, and this is neither, so there is nothing here to read');
         return
     end
     checkAttrEncodings(ctx, oid, path);
@@ -1277,9 +1275,8 @@ function checkCallables(ctx)
         checkName(ctx, name{1}, path);
         if ~followable(ctx, g, name{1}, path), continue, end
         if ~strcmp(H5.childType(g, name{1}), 'group')
-            ctx.rep.add('E15', path, 'a callable must be a group');
             ctx.rep.add('E41', path, ...
-                'a callable that is not a group cannot be read as one');
+                'a callable is a group, and this is not one, so there is no dictionary here to read');
             continue
         end
         guard(ctx, path, @() checkOneCallable(ctx, g, name{1}, path));

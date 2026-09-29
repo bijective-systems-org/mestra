@@ -558,8 +558,9 @@ function collect_categories!(v::Validator)
     for name in vchildren!(v, g, "/categories")
         d = vopen!(v, g, name, "/categories/$(name)")
         if !(d isa HDF5.Dataset)
-            d === nothing || report!(v, "E30", "/categories/$(name)",
-                "a category table is a dataset")
+            d === nothing || report!(v, "E41", "/categories/$(name)",
+                "a category table is a dataset, and this is a group, so " *
+                "there is no table here to read")
             continue
         end
         guard!(v, "/categories/$(name)") do
@@ -625,10 +626,9 @@ function check_keys!(v::Validator)
         path = "/keys/$(name)"
         d === nothing && continue
         if !(d isa HDF5.Dataset)
-            report!(v, "E30", path, "a key must be a dataset")
             report!(v, "E41", path,
-                    "this is a group, so there is no key column here to " *
-                    "read at all")
+                    "a key is a dataset, and this is a group, so there " *
+                    "is no key column here to read at all")
             continue
         end
         guard!(v, path) do
@@ -1043,11 +1043,9 @@ function check_supports!(v::Validator)
     for name in vchildren!(v, sg, "/supports")
         obj = hard_child(sg, name)
         if obj !== nothing && !(obj isa HDF5.Group)
-            report!(v, "E30", "/supports/$(name)",
-                    "a support is a group, not a dataset")
             report!(v, "E41", "/supports/$(name)",
-                    "this is a dataset, so there is no support here to " *
-                    "read at all")
+                    "a support is a group, and this is a dataset, so " *
+                    "there is no support here to read at all")
         end
     end
     for (i, name) in pairs(v.supports)
@@ -1458,8 +1456,9 @@ function check_callables!(v::Validator)
         g = vopen!(v, cg, id, "/callables/$(id)")
         g === nothing && continue
         path = "/callables/$(id)"
-        g isa HDF5.Group || (report!(v, "E15", path,
-            "a callable must be a group"); continue)
+        g isa HDF5.Group || (report!(v, "E41", path,
+            "a callable is a group, and this is a dataset, so there is " *
+            "no dictionary here to read"); continue)
         guard!(v, path) do
             a = own_attrs(g)
             check_attr_types!(v, path, a)

@@ -1822,7 +1822,10 @@ end
     @test "E29" in got["filter_many_cd"].errors
     @test "E29" in got["filter_unknown"].errors
     @test "E25" in got["scale_twice"].errors
-    @test "E30" in got["kind_confusion"].errors
+    # An object of the wrong kind is one the reader cannot read as what
+    # its place says it is, and every language names it E41.
+    @test "E41" in got["kind_confusion"].errors
+    @test "E30" ∉ got["kind_confusion"].errors
     @test "E26" in got["bad_utf8"].errors
 
     # one unreadable object must not hide what comes after it
