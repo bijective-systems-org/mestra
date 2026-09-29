@@ -448,7 +448,19 @@ void Validator::check_attribute_encodings(
     switch (want) {
       case Enc::Text: ok = internal::is_spec_string(a.type); break;
       case Enc::Integer: ok = internal::is_spec_int64(a.type); break;
-      case Enc::Real: ok = internal::is_spec_float64(a.type); break;
+      case Enc::Real:
+        ok = internal::is_spec_float64(a.type);
+        // Section 18: an attribute that declares a bound, a level or
+        // a quantile must be finite.  The four names of Enc::Real are
+        // exactly those.
+        if (ok && a.value.kind() == AttrValue::Kind::Float &&
+            !std::isfinite(a.value.as_float())) {
+          error("E19", path,
+                "the attribute \"" + a.name +
+                    "\" declares a bound, a level or a quantile and must "
+                    "be finite");
+        }
+        break;
       case Enc::Boolean:
         ok = internal::is_spec_bool(a.type);
         if (ok && !a.raw_bytes.empty()) {

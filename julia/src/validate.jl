@@ -417,8 +417,16 @@ function check_attr_types!(v::Validator, path::String,
             end
         elseif at.ti.class === :float
             if expected === :float
-                at.ti.size == 8 || report!(v, "E19", path,
-                    "float `$(name)` is not float64")
+                if at.ti.size != 8
+                    report!(v, "E19", path, "float `$(name)` is not float64")
+                elseif at.value isa Real && !isfinite(at.value)
+                    # Section 18: an attribute that declares a bound, a
+                    # level or a quantile must be finite, and the four
+                    # float attributes are exactly those.
+                    report!(v, "E19", path,
+                            "`$(name)` declares a bound, a level or a " *
+                            "quantile and must be finite")
+                end
             else
                 report!(v, "E19", path, "`$(name)` is a float")
             end
@@ -750,8 +758,9 @@ function check_key_bounds!(v::Validator, path, name, a)
     lo = a["lower"].value
     hi = a["upper"].value
     (lo isa Real && hi isa Real) || return v
-    (isfinite(lo) && isfinite(hi)) || (report!(v, "E19", path,
-        "a bound must be finite"); return v)
+    # A non-finite bound is E19, reported by check_attr_types!; W04 and
+    # W08 have nothing to measure against it.
+    (isfinite(lo) && isfinite(hi)) || return v
     vals = get(v.keyvals, name, nothing)
     vals === nothing && return v
     nums = Float64[x for x in vals if x isa Real && isfinite(x)]

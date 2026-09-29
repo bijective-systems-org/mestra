@@ -247,3 +247,25 @@ def test_a_future_major_version(tmp_path):
     assert report.error_ids == ["E01"]
     assert report.warning_ids == []
     _refuses(path, "E01")
+
+
+def test_a_bound_that_is_not_finite(tmp_path):
+    """Section 18: an attribute that declares a bound, a level or a
+    quantile must be finite (E19). A file with a NaN lower bound was
+    accepted outright by two of the four validators, because the
+    check lived with the bounds rules of one and the encoding rules
+    of another; it is E19 in all four now, and a level of inf draws
+    E12 for its range as well."""
+    path = _case(tmp_path, "mesh_two_rows", "nan_bound")
+    with h5py.File(path, "r+") as f:
+        f["/keys/mach"].attrs.modify("lower", np.float64("nan"))
+    report = mestra.validate(path)
+    assert report.error_ids == ["E19"]
+    assert [f.where for f in report.errors] == ["/keys/mach"]
+    _refuses(path, "E19")
+    path = _case(tmp_path, "band_stored", "inf_level")
+    with h5py.File(path, "r+") as f:
+        f["/supports/s0/node_arrays/pressure_band"].attrs.modify(
+            "level", np.float64("inf"))
+    report = mestra.validate(path)
+    assert report.error_ids == ["E12", "E19"]
