@@ -80,14 +80,6 @@ where no single scale this file holds is attached."""
 axis_scale_names(d::HDF5.Dataset, idx::ScaleIndex) =
     Union{String,Nothing}[t[2] for t in axis_scales(d, idx)]
 
-"""The link name of the one scale on C-order axis `axis`, or nothing."""
-function attached_scale_name(d::HDF5.Dataset, axis::Integer,
-                             idx::ScaleIndex)
-    got = axis_scales(d, idx)
-    i = Int(axis) + 1
-    return (1 <= i <= length(got)) ? got[i][2] : nothing
-end
-
 function slot_ldims(d::HDF5.Dataset, idx::ScaleIndex)
     return Symbol[n === nothing ? :unknown : logical_dim(n)
                   for n in axis_scale_names(d, idx)]
