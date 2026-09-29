@@ -727,6 +727,124 @@ end
           nothing
 end
 
+@testset "data that cannot be written is refused by name (E20)" begin
+    # `convert`'s refusal of a ragged array names no argument; the
+    # builder's names the slot and says what shape to pass
+    ds = Mestra.Dataset(writer = "t")
+    Mestra.add_key!(ds, "mach", [0.4, 0.8]; role = :condition, units = "1")
+    e = refusal(() -> Mestra.add_scalar!(ds, "cl", [[0.1, 0.2], [0.3]];
+                                         units = "1"))
+    @test e !== nothing && e.rule == "E20" && e.path == "/scalars/cl"
+    @test occursin("rectangular", e.msg) && occursin("`values`", e.msg)
+    axis = Mestra.add_axis_support!(ds, "t"; coordinates = [0.0, 1.0, 2.0],
+                                    units = "s")
+    e = refusal(() -> Mestra.add_node_array!(ds, axis, "p",
+            [[[1.0], [2.0], [3.0]], [[1.0], [2.0]]];
+            units = "Pa", dims = (:row, :node, :component)))
+    @test e !== nothing && e.rule == "E20"
+    @test e.path == "/supports/t/node_arrays/p"
+    e = refusal(() -> Mestra.add_axis_support!(ds, "u";
+            coordinates = [[0.0], [1.0, 2.0]], units = "s"))
+    @test e !== nothing && e.rule == "E20"
+    @test e.path == "/supports/u/coordinates" && occursin("`coordinates`", e.msg)
+    # text where a number belongs, and a float where a category id belongs
+    e = refusal(() -> Mestra.add_key!(ds, "speed", ["fast", "faster"];
+                                      role = :condition, units = "1"))
+    @test e !== nothing && e.rule == "E20" && e.path == "/keys/speed"
+    @test occursin("String", e.msg)
+    Mestra.add_category_table!(ds, "split", ["train", "test"])
+    e = refusal(() -> Mestra.add_key!(ds, "split", [0.0, 1.0]; role = :split,
+                                      category = "split"))
+    @test e !== nothing && e.rule == "E20" && occursin("integers", e.msg)
+    # a key or a scalar is one column
+    e = refusal(() -> Mestra.add_key!(ds, "alpha", [1.0 2.0; 3.0 4.0];
+                                      role = :condition, units = "1"))
+    @test e !== nothing && e.rule == "E04" && occursin("one value per row", e.msg)
+    # nothing above touched the dataset
+    @test collect(keys(ds.keys)) == ["mach"] && isempty(ds.scalars)
+    @test [s.name for s in ds.supports] == ["t"]
+end
+
+@testset "a bound that is not finite, and units that are not text (E19)" begin
+    # Section 18: a bound is finite and units are text.  At build time
+    # by the builder, naming the argument, and at write time when they
+    # were assigned afterwards, so that the writer never emits what its
+    # validator would refuse.
+    ds = Mestra.Dataset(writer = "t")
+    e = refusal(() -> Mestra.add_key!(ds, "mach", [0.4, 0.8];
+                                      role = :condition, units = "1",
+                                      lower = NaN, upper = 1.0))
+    @test e !== nothing && e.rule == "E19" && e.path == "/keys/mach"
+    @test occursin("`lower`", e.msg) && occursin("NaN", e.msg)
+    e = refusal(() -> Mestra.add_key!(ds, "mach", [0.4, 0.8];
+                                      role = :condition, units = "1",
+                                      lower = 0.0, upper = "one"))
+    @test e !== nothing && e.rule == "E19" && occursin("`upper`", e.msg)
+    e = refusal(() -> Mestra.add_key!(ds, "mach", [0.4, 0.8];
+                                      role = :condition, units = 1))
+    @test e !== nothing && e.rule == "E19" && e.path == "/keys/mach"
+    @test occursin("`units`", e.msg) && occursin("Int64", e.msg)
+    Mestra.add_key!(ds, "mach", [0.4, 0.8]; role = :condition, units = "1")
+    e = refusal(() -> Mestra.add_scalar!(ds, "cl", [0.1, 0.2]; units = 1))
+    @test e !== nothing && e.rule == "E19" && e.path == "/scalars/cl"
+    @test refusal(() -> Mestra.add_scalar!(ds, "cl", [0.1, 0.2])).rule == "E11"
+    axis = Mestra.add_axis_support!(ds, "t"; coordinates = [0.0, 1.0, 2.0],
+                                    units = "s")
+    e = refusal(() -> Mestra.add_node_array!(ds, axis, "p", rand(2, 3);
+                                             units = 7))
+    @test e !== nothing && e.rule == "E19"
+    @test e.path == "/supports/t/node_arrays/p"
+    # assigned after the build, the validator refuses the write with the
+    # same rule, and nothing is written
+    Mestra.add_scalar!(ds, "cl", [0.1, 0.2]; units = "1")
+    ds.keys["mach"].upper = Inf
+    path = joinpath(SCRATCH, "bound.mes")
+    e = refusal(() -> Mestra.write(ds, path))
+    @test e !== nothing && e.rule == "E19" && occursin("/keys/mach", e.msg)
+    @test !isfile(path)
+    ds.keys["mach"].upper = 0.8
+    Mestra.write(ds, path)
+    @test Mestra.validate(path).errors == String[]
+end
+
+@testset "a name the file could not hold is refused at build time (E33)" begin
+    # Not at write time, when the call that made the mistake is long
+    # gone: every builder that takes a name checks it, and the dataset
+    # is left as it was
+    ds = Mestra.Dataset(writer = "t")
+    Mestra.add_key!(ds, "mach", [0.4, 0.8]; role = :condition, units = "1")
+    axis = Mestra.add_axis_support!(ds, "t"; coordinates = [0.0, 1.0, 2.0],
+                                    units = "s")
+    calls = [
+        () -> Mestra.add_key!(ds, "a/b", [1.0, 2.0]; role = :condition,
+                              units = "1"),
+        () -> Mestra.add_scalar!(ds, "a/b", [1.0, 2.0]; units = "1"),
+        () -> Mestra.add_category_table!(ds, "a/b", ["x"]),
+        () -> Mestra.add_axis_support!(ds, "a/b"; coordinates = [0.0],
+                                       units = "s"),
+        () -> Mestra.add_none_support!(ds, "a/b"),
+        () -> Mestra.add_node_array!(ds, axis, "a/b", rand(2, 3);
+                                     units = "Pa"),
+        () -> Mestra.add_cell_array!(ds, axis, "mach number", rand(2, 0);
+                                     units = "Pa", dims = (:row, :cell)),
+        () -> Mestra.add_callable!(ds, "a/b", Mestra.Affine(["mach"], Dict{String,Mestra.AffineOutput}())),
+        () -> Mestra.add_callable_scalar!(ds, "mestra_cl"; units = "1",
+                                          callable = "f", output = "cl"),
+        () -> Mestra.add_callable_slot!(ds, axis, "a/b"; units = "1",
+                                        components = 1, callable = "f",
+                                        output = "p"),
+    ]
+    for call in calls
+        e = refusal(call)
+        @test e !== nothing && e.rule == "E33"
+        @test occursin("`name`", e.msg)
+    end
+    @test collect(keys(ds.keys)) == ["mach"] && isempty(ds.scalars)
+    @test isempty(ds.categories) && isempty(ds.callables)
+    @test [s.name for s in ds.supports] == ["t"]
+    @test isempty(axis.node_arrays) && isempty(axis.cell_arrays)
+end
+
 @testset "building a model file with a callable slot" begin
     ds = Mestra.Dataset(writer = "mestra.jl test 0",
                         created = "2026-09-19T00:00:00Z")
