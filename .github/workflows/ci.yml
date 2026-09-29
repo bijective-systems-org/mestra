@@ -74,6 +74,9 @@ jobs:
   python:
     name: python ${{ matrix.python }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Minutes are metered: a pull request runs this on Linux alone, and the
+    # three-platform matrix runs on main (every push) and on a release.
+    if: github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'
     timeout-minutes: 30
     strategy:
       # Every cell runs.  Which platform a reader breaks on is the
@@ -125,6 +128,9 @@ jobs:
   cpp:
     name: cpp (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Minutes are metered: a pull request runs this on Linux alone, and the
+    # three-platform matrix runs on main (every push) and on a release.
+    if: github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -257,6 +263,9 @@ jobs:
   julia:
     name: julia ${{ matrix.julia }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Minutes are metered: a pull request runs this on Linux alone, and the
+    # three-platform matrix runs on main (every push) and on a release.
+    if: github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'
     timeout-minutes: 60
     strategy:
       fail-fast: false
