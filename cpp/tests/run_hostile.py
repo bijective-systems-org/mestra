@@ -30,10 +30,11 @@ import tempfile
 FINDING = re.compile(r"^([EW][0-9]{2}|!) (\S+): (.*)$")
 
 # Most of these files are here for the one thing above: an answer
-# rather than a signal.  Three of them are here for which answer,
-# because naming the wrong rule, or none, is its own fault.  `must`
-# is what `validate` has to name and `must_not` what it may not,
-# each an identifier of section 14.
+# rather than a signal.  Some are here for which answer, because
+# naming the wrong rule, or none, or the right rule on the wrong
+# object, is its own fault.  `must` is what `validate` has to name
+# and `must_not` what it may not, each an identifier of section 14,
+# or "<id> <path>" when the object matters too.
 EXPECTED = {
     "category_above_cap.mes": {
         # Section 29: the eager read of a table above the stated
@@ -55,6 +56,34 @@ EXPECTED = {
         # is a public object, and section 23's chunking rule holds
         # on it.
         "must": ["E27"],
+        "must_not": [],
+    },
+    "axis_stranger_scale.mes": {
+        # E25 is on the slot whose axis carries the wrong name, and
+        # not on the scale dataset, which section 14 exempts.
+        "must": ["E25 /supports/s0/node_arrays/pressure"],
+        "must_not": ["E25 /supports/s0/elsewhere"],
+    },
+    "units_float.mes": {
+        # A units that is not a string is E19 and is not also a
+        # string that does not parse.
+        "must": ["E19 /supports/s0/node_arrays/pressure"],
+        "must_not": ["W10"],
+    },
+    "attribute_for_dataset.mes": {
+        # Section 18 constrains the attributes it names; a stranger
+        # of any shape is W11.
+        "must": ["E38", "E08", "W11 /supports/s0"],
+        "must_not": ["E19"],
+    },
+    "key_group.mes": {
+        # An object of the wrong kind is one the reader cannot read
+        # as what its place says it is, and nothing else.
+        "must": ["E41 /keys/nested"],
+        "must_not": ["E39", "E30", "E15"],
+    },
+    "n_cells_declared.mes": {
+        "must": ["E05 /supports/s0/cell_types"],
         "must_not": [],
     },
 }
@@ -97,13 +126,20 @@ def check(cli, path, problems):
                                 % (name,))
             expected = EXPECTED.get(name)
             if expected is not None:
-                named = set(FINDING.match(line).group(1)
-                            for line in findings)
+                # Each finding is looked up by its identifier alone and
+                # by identifier and path, so an expectation may say
+                # either.
+                named = set()
+                for line in findings:
+                    rule, where = FINDING.match(line).group(1, 2)
+                    named.add(rule)
+                    named.add("%s %s" % (rule, where))
                 for rule in expected["must"]:
                     if rule not in named:
                         problems.append(
                             "%s: validate did not name %s; it named %s"
-                            % (name, rule, ", ".join(sorted(named))))
+                            % (name, rule, ", ".join(sorted(
+                                r for r in named if " " not in r))))
                 for rule in expected["must_not"]:
                     if rule in named:
                         problems.append(

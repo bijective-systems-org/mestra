@@ -202,7 +202,7 @@ def category_above_cap(out):
         del f["/category_member"]
         scale = f.create_dataset("category_member", shape=(entries,),
                                  dtype=">f4", chunks=(4096,),
-                                 track_times=False)
+                                 track_times=False, track_order=True)
         for name, text in (("CLASS", b"DIMENSION_SCALE"),
                            ("NAME", (DIM_NAME + "%10d" % entries).encode())):
             scale.attrs.create(name, text, dtype=h5py.string_dtype(
@@ -233,10 +233,79 @@ def support_unknown_dataset(out):
     return path
 
 
+def axis_stranger_scale(out):
+    """A node array whose node axis carries a scale of another name.
+    Section 21 puts `node` there, so the slot is E25; the scale
+    dataset itself is not, because section 14 exempts a scale from
+    the rule, and a reader that reported it there instead of on the
+    slot would be naming the wrong object."""
+    path = fresh(out, "axis_stranger_scale.mes")
+    with h5py.File(path, "r+") as f:
+        stranger = f.create_dataset("/supports/s0/elsewhere",
+                                    data=np.zeros(6, ">f4"),
+                                    track_times=False, track_order=True)
+        stranger.make_scale("elsewhere")
+        slot = f["/supports/s0/node_arrays/pressure"]
+        slot.dims[1].detach_scale(f["/supports/s0/node"])
+        slot.dims[1].attach_scale(stranger)
+    return path
+
+
+def units_float(out):
+    """A slot whose `units` is a float64 rather than a string: E19,
+    and not W10 as well, because a units that is not a string is not
+    a string that does not parse."""
+    path = fresh(out, "units_float.mes")
+    with h5py.File(path, "r+") as f:
+        slot = f["/supports/s0/node_arrays/pressure"]
+        del slot.attrs["units"]
+        slot.attrs.create("units", np.float64(1.0))
+    return path
+
+
+def attribute_for_dataset(out):
+    """cell_types moved from a dataset to an attribute on the support:
+    the dataset is missing (E38), the digest no longer matches (E08),
+    and the attribute is one this version does not know (W11).
+    Section 18 constrains the attributes it names, so the array-valued
+    stranger is not E19."""
+    path = fresh(out, "attribute_for_dataset.mes")
+    with h5py.File(path, "r+") as f:
+        types = f["/supports/s0/cell_types"][...]
+        del f["/supports/s0/cell_types"]
+        f["/supports/s0"].attrs.create("cell_types", types)
+    return path
+
+
+def key_group(out):
+    """A group under /keys with the key column moved inside it: not a
+    key, and not readable as one (E41 with its path).  Not a missing
+    attribute (E39), a slot stored wrongly (E30) or a callable without
+    a type (E15), which are what three readers once said."""
+    path = fresh(out, "key_group.mes")
+    with h5py.File(path, "r+") as f:
+        f["/keys"].create_group("nested")
+        f.move("/keys/mach", "/keys/nested/mach")
+    return path
+
+
+def n_cells_declared(out):
+    """A mesh declaring three cells over a cell_types of two, with its
+    one cell array removed so that nothing else holds the count: E05
+    on cell_types itself."""
+    path = fresh(out, "n_cells_declared.mes")
+    with h5py.File(path, "r+") as f:
+        del f["/supports/s0/cell_arrays/region"]
+        f["/supports/s0"].attrs.modify("n_cells", np.int64(3))
+    return path
+
+
 CASES = [attr_array_int, attr_array_float, attr_array_named,
          attr_array_vlen, dict_deep, link_soft_dangling, link_external,
          filter_unknown, member_named_type, shape_enormous,
-         category_above_cap, support_unknown_dataset]
+         category_above_cap, support_unknown_dataset,
+         axis_stranger_scale, units_float, attribute_for_dataset,
+         key_group, n_cells_declared]
 
 
 def main(argv):

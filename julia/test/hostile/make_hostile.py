@@ -69,10 +69,14 @@ def fattr(obj, name, value):
 
 
 def scale(group, name, length, unlimited=False, with_name=True):
+    # track_order is attribute creation order, tracked and indexed,
+    # which section 21 requires of a scale (E42); a hostile file is
+    # about its one fault and not about that.
     d = group.create_dataset(
         name, shape=(length,), dtype=">f4",
         maxshape=(None,) if unlimited else (length,),
-        chunks=(1,) if unlimited else None, track_times=False)
+        chunks=(1,) if unlimited else None, track_times=False,
+        track_order=True)
     if with_name:
         d.make_scale("%s%10d" % (DIM_NAME, length))
     else:
