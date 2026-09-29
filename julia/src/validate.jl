@@ -1179,7 +1179,10 @@ function check_cells!(v::Validator, path, g, kind, n_nodes, n_cells)
         (0 <= x < n_nodes) || report!(v, "E24", "$(path)/cell_connectivity",
             "value $(x) is outside [0, $(n_nodes))")
     end
-    length(types) == n_cells || report!(v, "E05", "$(path)/cell_types",
+    # The cell count a mesh declares is the length of its cell_types;
+    # a cell dataset on another kind is E38 alone.
+    kind == "mesh" && length(types) != n_cells && report!(v, "E05",
+        "$(path)/cell_types",
         "$(length(types)) cells where the support declares $(n_cells)")
     return (types, offsets, conn)
 end

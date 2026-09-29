@@ -792,7 +792,8 @@ class _FileValidator:
             self.error("E38", where, "a support of kind %s carries no "
                                      "cell datasets and no cell "
                                      "dimension" % kind)
-        self.guarded(where, self._cells, where, cells, n_nodes)
+        self.guarded(where, self._cells, where, cells, n_nodes,
+                     n_cells if kind == "mesh" else None)
         self.guarded(where, self._support_id, where, group, kind,
                      n_nodes, cells, inside)
 
@@ -843,8 +844,12 @@ class _FileValidator:
                           "ignores it")
 
     def _cells(self, where: str, cells: dict[str, h5py.Dataset],
-               n_nodes: int) -> None:
-        """E21 to E24: the cell arrays against section 20."""
+               n_nodes: int, n_cells: int | None) -> None:
+        """E05 and E21 to E24: the cell arrays against section 20.
+
+        `n_cells` is the count a mesh declares, and None on any other
+        kind, whose cell datasets are E38 alone.
+        """
         if len(cells) != 3:
             return
         types = self.values(cells["cell_types"], where + "/cell_types")
@@ -857,6 +862,17 @@ class _FileValidator:
         if (types.dtype.kind not in "iu" or offsets.dtype.kind not in "iu"
                 or connectivity.dtype.kind not in "iu"):
             return
+        if n_cells is not None and len(types) != n_cells:
+            # The cell count a mesh declares is the length of its
+            # cell_types; a cell array is checked against the
+            # declaration (E05), so the declaration is checked here
+            # against the one dataset that defines it, or a mesh with
+            # no cell arrays would carry any n_cells at all.
+            self.error("E05", where + "/cell_types", "this support "
+                                                     "declares %d cells "
+                                                     "and cell_types "
+                                                     "holds %d"
+                       % (n_cells, len(types)))
         if cells["cell_types"].dtype != np.dtype("u1"):
             self.error("E20", where + "/cell_types", "cell_types is "
                                                      "uint8")

@@ -1467,6 +1467,18 @@ void Validator::supports() {
     }
     const bool have_types =
         has_types && have_contents(sp + "/cell_types");
+    if (kind == "mesh" && have_types &&
+        static_cast<std::int64_t>(types.size()) != n_cells) {
+      // The cell count a mesh declares is the length of its
+      // cell_types.  A cell array is checked against the declaration;
+      // the declaration is checked here against the one dataset that
+      // defines it, or a mesh with no cell arrays could declare any
+      // count at all.  A cell dataset on another kind is E38 alone.
+      error("E05", sp + "/cell_types",
+            "the support declares " + internal::format_i64(n_cells) +
+                " cells and cell_types holds " +
+                internal::format_i64(static_cast<std::int64_t>(types.size())));
+    }
     const bool have_offsets =
         has_offsets && have_contents(sp + "/cell_offsets");
     const bool have_conn =

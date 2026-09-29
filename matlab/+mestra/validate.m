@@ -882,7 +882,13 @@ function checkOneSupport(ctx, parent, name, index)
     if has('cell_connectivity')
         conn = plainValues(ctx, sid, 'cell_connectivity', path, 'int64');
     end
-    checkCells(ctx, path, types, offsets, conn, nNodes);
+    if strcmp(kind, 'mesh')
+        checkCells(ctx, path, types, offsets, conn, nNodes, nCells);
+    else
+        % A cell dataset on another kind is E38 alone, and the count
+        % it declares is not a cell count.
+        checkCells(ctx, path, types, offsets, conn, nNodes, []);
+    end
 
     % ------------------------------------------------- support_id
     record.kind = kind;
@@ -1014,9 +1020,19 @@ function [values, info] = plainValues(ctx, sid, name, path, wanted)
     H5D.close(did);
 end
 
-function checkCells(ctx, path, types, offsets, conn, nNodes)
+function checkCells(ctx, path, types, offsets, conn, nNodes, nCells)
     rep = ctx.rep;
     if isempty(types) && isempty(offsets) && isempty(conn), return, end
+    if ~isempty(nCells) && numel(types) ~= nCells
+        % The cell count a mesh declares is the length of its
+        % cell_types.  A cell array is checked against the declaration;
+        % the declaration is checked here against the one dataset that
+        % defines it, or a mesh with no cell arrays could declare any
+        % count at all.  nCells is [] on any other kind.
+        rep.add('E05', [path '/cell_types'], ...
+            'the support declares %d cells and cell_types holds %d', ...
+            nCells, numel(types));
+    end
     table = cellTypeTable();
     for i = 1:numel(types)
         if ~table.isKey(types(i))
