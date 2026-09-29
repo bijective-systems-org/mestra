@@ -785,6 +785,16 @@ end
     @test e !== nothing && e.rule == "E19" && e.path == "/keys/mach"
     @test occursin("`units`", e.msg) && occursin("Int64", e.msg)
     Mestra.add_key!(ds, "mach", [0.4, 0.8]; role = :condition, units = "1")
+    # the other half of E39: a key whose values are identifiers or
+    # category ids carries no units at all
+    e = refusal(() -> Mestra.add_key!(ds, "run", ["a", "b"]; role = :id,
+                                      units = "1"))
+    @test e !== nothing && e.rule == "E39" && e.path == "/keys/run"
+    @test occursin("row identifiers", e.msg) && occursin("`units`", e.msg)
+    Mestra.add_category_table!(ds, "fold", ["train", "test"])
+    e = refusal(() -> Mestra.add_key!(ds, "fold", Int32[0, 1]; role = :split,
+                                      category = "fold", units = "1"))
+    @test e !== nothing && e.rule == "E39" && occursin("category ids", e.msg)
     e = refusal(() -> Mestra.add_scalar!(ds, "cl", [0.1, 0.2]; units = 1))
     @test e !== nothing && e.rule == "E19" && e.path == "/scalars/cl"
     @test refusal(() -> Mestra.add_scalar!(ds, "cl", [0.1, 0.2])).rule == "E11"

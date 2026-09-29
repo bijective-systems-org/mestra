@@ -191,6 +191,12 @@ function add_key!(ds::Dataset, name::AbstractString, values;
             "a $(role) key requires `units`, a UDUNITS string such as " *
             "\"m s-1\" or \"1\" for a dimensionless one"))
     end
+    if !(role in (:design, :condition, :time)) && units !== nothing
+        throw(MestraError("E39", path,
+            "a $(role) key carries no units, because its values are " *
+            (role === :id ? "row identifiers" : "category ids") *
+            "; drop `units`"))
+    end
     k = KeyColumn(name, role; units = units, lower = lo, upper = hi,
                   category = category, trajectory_group = trajectory_group,
                   parent = parent, eltype = T,
