@@ -1484,9 +1484,48 @@ end
         # Never remove a directory or move the staged file inside it.
         blocked = joinpath(directory, "directory.mes")
         mkdir(blocked)
-        @test_throws Base.IOError Mestra.write(ds, blocked)
+        @test refusal(() -> Mestra.write(ds, blocked)) !== nothing
         @test isdir(blocked) && isempty(readdir(blocked))
         @test Set(readdir(directory)) == Set(["result.mes", "directory.mes"])
+    end
+end
+
+@testset "a destination that cannot take a file is refused first" begin
+    # The staging and the publish both happen in the destination's
+    # directory (docs/compatibility.md, "Replacing files"), so a
+    # destination that cannot take a file is refused before anything
+    # is validated or staged, with a MestraError naming the path and
+    # nothing left behind -- and not, as it was, with the IOError of
+    # whichever step ran into it, after a staging directory was made.
+    mktempdir() do directory
+        ds, _ = six_node_dataset()
+        a_directory = joinpath(directory, "taken.mes")
+        mkdir(a_directory)
+        sealed = joinpath(directory, "sealed")
+        mkdir(sealed)
+        chmod(sealed, 0o500)
+        try
+            for (path, said) in ((a_directory, "names a directory"),
+                                 (joinpath(sealed, "x.mes"), "not writable"),
+                                 (joinpath(directory, "gone", "x.mes"),
+                                  "does not exist"))
+                for check in (true, false)
+                    e = refusal(() -> Mestra.write(ds, path; check = check))
+                    @test e !== nothing && e.rule === nothing
+                    @test e.path == path && occursin(said, e.msg)
+                end
+            end
+            e = refusal(() -> Mestra.write(ds, ""))
+            @test e !== nothing && e.rule === nothing && e.path === nothing
+            @test occursin("`path` is empty", e.msg)
+        finally
+            chmod(sealed, 0o700)
+        end
+        @test sort(readdir(directory)) == ["sealed", "taken.mes"]
+        @test isempty(readdir(a_directory)) && isempty(readdir(sealed))
+        # the empty path was refused before a staging directory was made
+        # beside it, which would have been in the working directory
+        @test !any(startswith(".mestra-"), readdir(pwd()))
     end
 end
 
