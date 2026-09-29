@@ -60,7 +60,9 @@ that one reader answers may lose another.
 
 Checked writers build beside the destination and publish only after
 successful construction and validation. Failure before publication
-leaves an existing destination intact. Publication uses a same-filesystem
+leaves an existing destination intact. A destination that cannot take a
+file at all (an empty path, a directory, a missing or unwritable parent)
+is refused by name before anything is staged. Publication uses a same-filesystem
 rename/atomic move; an unsupported replacement is an error, without a
 delete-and-copy fallback. This is not a guarantee of durability after
 power loss, nor does it coordinate concurrent writers. Producers must

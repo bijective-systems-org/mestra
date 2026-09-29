@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <map>
 #include <set>
 
@@ -594,12 +595,49 @@ void write_file(const Dataset& d, const std::string& path) {
   w.run();
 }
 
+// The staging and the publish both happen in the destination's
+// directory (docs/compatibility.md, "Replacing files"), so a
+// destination that cannot take a file is refused here, naming `path`,
+// before anything is validated, staged or created.  An I/O failure
+// after this point is the operating system's error, and leaves an
+// existing destination as it was.  The Python and Julia writers refuse
+// the same four cases in the same words.
+void check_destination(const std::string& path) {
+  namespace fs = std::filesystem;
+  if (path.empty()) {
+    throw Error("", "path is empty; pass the name of the file to write");
+  }
+  std::error_code ec;
+  if (fs::is_directory(path, ec)) {
+    throw Error("", "path names a directory, which a file cannot replace; "
+                    "pass a file name: \"" + path + "\"");
+  }
+  fs::path parent = fs::absolute(path, ec).parent_path();
+  if (!fs::is_directory(parent, ec)) {
+    throw Error("", "the directory " + parent.string() + " does not exist; "
+                    "the file is staged and published there, so create it "
+                    "first: \"" + path + "\"");
+  }
+  // A directory whose entries cannot be added to.  Permissions on
+  // Windows are not expressed this way, so the check is a POSIX one and
+  // a refusal there comes from the operating system at staging time.
+  const fs::perms mode = fs::status(parent, ec).permissions();
+  const bool writable = (mode & (fs::perms::owner_write | fs::perms::group_write |
+                                 fs::perms::others_write)) != fs::perms::none;
+  if (!ec && !writable) {
+    throw Error("", "the directory " + parent.string() + " is not writable; "
+                    "the file is staged and published there: \"" + path +
+                    "\"");
+  }
+}
+
 }  // namespace
 
 void write(const Dataset& d, const std::string& path,
            const WriteOptions& options) {
   internal::check_dataset_names(d);
   internal::check_dataset_shapes(d);
+  check_destination(path);
   if (!options.check) {
     write_file(d, path);
     return;
