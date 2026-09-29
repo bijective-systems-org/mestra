@@ -1291,13 +1291,15 @@ class _FileValidator:
         # open the attribute a second time, once per attribute of
         # every object in the file.
         shape = tuple(attr.shape)
-        if shape:
+        if shape and kind is not None:
             # Section 18 gives every attribute it names a scalar
-            # dataspace; an array is an encoding this format does
-            # not have.
+            # dataspace. An attribute it does not name is W11 and
+            # nothing else, whatever its shape: section 28 says an
+            # unknown attribute is ignored and reported, and the
+            # other three implementations read it that way.
             self.error("E19", path, "the attribute %s has the shape "
-                                    "%s, and section 18 gives every "
-                                    "attribute a scalar dataspace"
+                                    "%s, and section 18 gives it a "
+                                    "scalar dataspace"
                        % (name, tuple(shape)))
         if isinstance(htype, h5py.h5t.TypeStringID):
             if htype.is_variable_str():
@@ -1335,11 +1337,15 @@ class _FileValidator:
                                             "valid UTF-8" % name)
             return
         dtype = attr.dtype
+        if kind is None:
+            # A numeric attribute section 18 does not name: W11 from
+            # the object's own walk, and no encoding to hold it to.
+            return
         if kind == "string":
             self.error("E19", path, "the attribute %s is a string and "
                                     "is stored as %s" % (name, dtype))
             return
-        if kind == "boolean" or (kind is None and dtype == np.int8):
+        if kind == "boolean":
             if dtype != np.int8:
                 self.error("E19", path, "the boolean attribute %s is "
                                         "int8, and this is %s"
@@ -1364,13 +1370,6 @@ class _FileValidator:
                 self.error("E19", path, "the attribute %s declares a "
                                         "bound, a level or a quantile "
                                         "and must be finite" % name)
-            return
-        if dtype not in (np.dtype("int64"), np.dtype("float64"),
-                         np.dtype("int8")):
-            self.error("E19", path, "the attribute %s is %s; section "
-                                    "18 has int8, int64, float64 and "
-                                    "fixed-length strings"
-                       % (name, dtype))
 
     def _dataset(self, dset: h5py.Dataset, path: str) -> None:
         if h5safe.is_scale(dset):
