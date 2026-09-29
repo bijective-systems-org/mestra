@@ -411,6 +411,9 @@ classdef Dataset < handle
                        'them as the fourth argument, "1" when it is ' ...
                        'dimensionless'], path, role);
             end
+            mestra.Dataset.checkUnitsText(units, path);
+            mestra.Dataset.checkBound('Lower', r.Lower, path);
+            mestra.Dataset.checkBound('Upper', r.Upper, path);
             rec = mestra.Dataset.emptyKey();
             rec(1).name = name;
             rec(1).role = role;
@@ -502,6 +505,7 @@ classdef Dataset < handle
             if ~isempty(r.Callable)
                 source = ['callable:' r.Callable];
             end
+            mestra.Dataset.checkUnitsText(units, ['/scalars/' name]);
             if isempty(units)
                 error('mestra:E11', ...
                       ['E11: /scalars/%s: a scalar requires units; give ' ...
@@ -1212,6 +1216,19 @@ classdef Dataset < handle
         end
 
         function out = append(arr, rec, name)
+            % Every producer-chosen name comes through here, so this is
+            % where section 18's name rule is held at build time (E33),
+            % as every other builder holds it.
+            if ~mestra.internal.Text.legalName(name)
+                error('mestra:E33', ...
+                      ['E33: "%s" is not a legal netCDF-4 name: letters, ' ...
+                       'digits, underscore, hyphen, . and + only'], name);
+            end
+            if strncmp(name, 'mestra_', 7)
+                error('mestra:E33', ...
+                      ['E33: "%s": names beginning with mestra_ are ' ...
+                       'reserved for the container'], name);
+            end
             if ~isempty(arr)
                 if isfield(arr, 'name')
                     taken = {arr.name};
@@ -1223,6 +1240,28 @@ classdef Dataset < handle
                 end
             end
             out = [arr rec];
+        end
+
+        function checkUnitsText(units, path)
+        %checkUnitsText  E19: units, when given, are text.
+            if ~isempty(units) && ~mestra.internal.Args.isText(units)
+                error('mestra:E19', ...
+                      ['E19: %s: units is a string, and this is %s; ' ...
+                       'give the unit as text, "1" when it is ' ...
+                       'dimensionless'], path, class(units));
+            end
+        end
+
+        function checkBound(label, value, path)
+        %checkBound  E19: a bound the caller declares is finite
+        %   (section 18).  Empty means "not given" and is fine.
+            if isempty(value), return, end
+            if ~isnumeric(value) || ~isscalar(value) || ~isfinite(value)
+                error('mestra:E19', ...
+                      ['E19: %s: %s is a finite float64 bound, and %s is ' ...
+                       'not; give a number, or leave it out for the ' ...
+                       'observed one'], path, label, mat2str(value));
+            end
         end
 
         function v = pick(arr, name, what)
