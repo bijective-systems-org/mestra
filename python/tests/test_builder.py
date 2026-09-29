@@ -6,6 +6,8 @@ mistake should name the rule it breaks.
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 
@@ -610,3 +612,76 @@ def test_an_axis_supports_coordinates_are_never_served():
                                       components=1)
     assert caught.value.rule == "E03"
     assert "identity" in caught.value.message or "stored" in caught.value.message
+
+
+# ------------------------------------------- data that cannot be written
+
+def test_a_ragged_array_is_refused_by_name():
+    """numpy's refusal names no argument; the builder's names the
+    slot and says what shape to pass (E20)."""
+    ds = mestra.Dataset(writer="t")
+    ds.add_key("mach", [0.4, 0.8], role="condition", units="1")
+    with pytest.raises(MestraError) as caught:
+        ds.add_scalar("cl", [[0.1, 0.2], [0.3]], units="1")
+    assert caught.value.rule == "E20"
+    assert caught.value.where == "cl"
+    assert "rectangular" in caught.value.message
+    axis = ds.add_support("t", coordinates=[0.0, 1.0, 2.0], units="s")
+    with pytest.raises(MestraError) as caught:
+        axis.add_node_array("p", [[[1.0], [2.0], [3.0]], [[1.0], [2.0]]],
+                            units="Pa", dims=("row", "node", "component"))
+    assert caught.value.rule == "E20"
+    assert caught.value.where == "p"
+    with pytest.raises(MestraError) as caught:
+        ds.add_support("u", coordinates=[[0.0], [1.0, 2.0]], units="s")
+    assert caught.value.rule == "E20"
+    assert caught.value.where == "u/coordinates"
+
+
+def test_text_where_a_number_belongs_is_refused_by_name():
+    ds = mestra.Dataset(writer="t")
+    with pytest.raises(MestraError) as caught:
+        ds.add_key("mach", ["fast", "faster"], role="condition", units="1")
+    assert caught.value.rule == "E20"
+    assert caught.value.where == "mach"
+
+
+def test_a_bound_that_is_not_finite_is_refused(tmp_path):
+    """Section 18: a bound is finite. At build time by the builder,
+    and at write time when it was assigned afterwards, so that the
+    writer never emits what its validator would refuse (E19)."""
+    ds = mestra.Dataset(writer="t")
+    with pytest.raises(MestraError) as caught:
+        ds.add_key("mach", [0.4, 0.8], role="condition", units="1",
+                   lower=float("nan"), upper=1.0)
+    assert caught.value.rule == "E19"
+    assert caught.value.where == "mach"
+    assert "lower" in caught.value.message
+    ds.add_key("mach", [0.4, 0.8], role="condition", units="1")
+    ds.keys["mach"].upper = float("inf")
+    path = str(tmp_path / "bound.mes")
+    with pytest.raises(MestraError) as caught:
+        mestra.write(ds, path)
+    assert caught.value.rule == "E19"
+    assert "/keys/mach" in str(caught.value)
+    assert not os.path.exists(path)
+
+
+def test_units_that_are_not_text_are_refused(tmp_path):
+    ds = mestra.Dataset(writer="t")
+    with pytest.raises(MestraError) as caught:
+        ds.add_key("mach", [0.4, 0.8], role="condition", units=1)
+    assert caught.value.rule == "E19"
+    assert caught.value.where == "mach"
+    ds.add_key("mach", [0.4, 0.8], role="condition", units="1")
+    with pytest.raises(MestraError) as caught:
+        ds.add_scalar("cl", [0.1, 0.2], units=1)
+    assert caught.value.rule == "E19"
+    ds.add_scalar("cl", [0.1, 0.2], units="1")
+    ds.scalars["cl"].units = 1
+    path = str(tmp_path / "units.mes")
+    with pytest.raises(MestraError) as caught:
+        mestra.write(ds, path)
+    assert caught.value.rule == "E19"
+    assert "/scalars/cl" in str(caught.value)
+    assert not os.path.exists(path)

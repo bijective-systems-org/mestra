@@ -201,6 +201,19 @@ class Validator {
     r_->warnings.push_back({id, where, message});
   }
 
+  // W10: a units string the parser cannot read.  A `units` that is not
+  // a string at all is E19, drawn by check_attribute_encodings, and is
+  // not also a string that does not parse.
+  void units_warning(const std::string& path,
+                     const std::vector<RawAttr>& attrs) {
+    const RawAttr* a = find(attrs, "units");
+    if (a == nullptr || a->value.kind() != AttrValue::Kind::Str) return;
+    const std::string units = a->value.as_text();
+    if (!units_parse(units)) {
+      warn("W10", path, "the units string \"" + units + "\" does not parse");
+    }
+  }
+
   // E12: a statistic with what it needs (section 9), and on a slot a
   // callable serves, one a callable produces (section 10).
   void check_statistic(const std::string& path,
@@ -435,7 +448,19 @@ void Validator::check_attribute_encodings(
     switch (want) {
       case Enc::Text: ok = internal::is_spec_string(a.type); break;
       case Enc::Integer: ok = internal::is_spec_int64(a.type); break;
-      case Enc::Real: ok = internal::is_spec_float64(a.type); break;
+      case Enc::Real:
+        ok = internal::is_spec_float64(a.type);
+        // Section 18: an attribute that declares a bound, a level or
+        // a quantile must be finite.  The four names of Enc::Real are
+        // exactly those.
+        if (ok && a.value.kind() == AttrValue::Kind::Float &&
+            !std::isfinite(a.value.as_float())) {
+          error("E19", path,
+                "the attribute \"" + a.name +
+                    "\" declares a bound, a level or a quantile and must "
+                    "be finite");
+        }
+        break;
       case Enc::Boolean:
         ok = internal::is_spec_bool(a.type);
         if (ok && !a.raw_bytes.empty()) {
@@ -652,7 +677,10 @@ void Validator::unknown_dataset(const std::string& path,
   // that follow from being a dataset in this file at all: its name,
   // its attribute encodings, a dimension scale on every axis, valid
   // UTF-8 if it holds fixed-length strings, its filters, and chunking
-  // if it carries a row dimension.
+  // if it carries a row dimension.  A dimension scale in a place
+  // section 21 does not name is one of these too, except that a scale
+  // carries no scale on its own axis and is not subject to E25
+  // (section 14); the dataset attached to it draws E25 instead.
   const std::string name = internal::basename(path);
   if (!internal::legal_netcdf_name(name)) {
     error("E33", path, "\"" + name + "\" is not a legal netCDF-4 name");
@@ -662,7 +690,7 @@ void Validator::unknown_dataset(const std::string& path,
           "\"" + name + "\" begins with the reserved prefix mestra_");
   }
   check_attribute_encodings(path, f_.attributes(path));
-  const Axes axes = axes_of(path, info, true);
+  const Axes axes = axes_of(path, info, !info.is_scale);
   DType dtype = DType::Float64;
   if (internal::dtype_of(info.type, &dtype) && dtype == DType::String) {
     check_string_dataset(path, info, true);
@@ -885,16 +913,13 @@ void Validator::keys() {
       role_count[k.role] += 1;
     }
 
-    bool has_units = false;
-    const std::string units = text_of(attrs, "units", &has_units);
+    const bool has_units = find(attrs, "units") != nullptr;
     if (k.role == "design" || k.role == "condition" || k.role == "time") {
       if (!has_units) {
         error("E39", p, "a " + k.role + " key with no `units`");
       }
     }
-    if (has_units && !units_parse(units)) {
-      warn("W10", p, "the units string \"" + units + "\" does not parse");
-    }
+    units_warning(p, attrs);
 
     bool has_category = false;
     k.category = text_of(attrs, "category", &has_category);
@@ -1184,13 +1209,10 @@ void Validator::scalars() {
       }
     }
 
-    bool has_units = false;
-    const std::string units = text_of(attrs, "units", &has_units);
-    if (!has_units) {
+    if (find(attrs, "units") == nullptr) {
       error("E11", p, "a scalar with no `units`");
-    } else if (!units_parse(units)) {
-      warn("W10", p, "the units string \"" + units + "\" does not parse");
     }
+    units_warning(p, attrs);
 
     bool has_source = false;
     const std::string source = text_of(attrs, "source", &has_source);
@@ -1467,6 +1489,18 @@ void Validator::supports() {
     }
     const bool have_types =
         has_types && have_contents(sp + "/cell_types");
+    if (kind == "mesh" && have_types &&
+        static_cast<std::int64_t>(types.size()) != n_cells) {
+      // The cell count a mesh declares is the length of its
+      // cell_types.  A cell array is checked against the declaration;
+      // the declaration is checked here against the one dataset that
+      // defines it, or a mesh with no cell arrays could declare any
+      // count at all.  A cell dataset on another kind is E38 alone.
+      error("E05", sp + "/cell_types",
+            "the support declares " + internal::format_i64(n_cells) +
+                " cells and cell_types holds " +
+                internal::format_i64(static_cast<std::int64_t>(types.size())));
+    }
     const bool have_offsets =
         has_offsets && have_contents(sp + "/cell_offsets");
     const bool have_conn =
@@ -1604,8 +1638,7 @@ void Validator::slot(const std::string& path,
   const std::string varies = text_of(attrs, "varies", &has_varies);
   if (!has_varies) error("E39", path, "no `varies`");
 
-  bool has_units = false;
-  const std::string units = text_of(attrs, "units", &has_units);
+  const bool has_units = find(attrs, "units") != nullptr;
   if (role == "field") {
     if (!has_units) error("E11", path, "a field with no `units`");
   } else if (role == "derived" || role == "coordinates") {
@@ -1613,9 +1646,7 @@ void Validator::slot(const std::string& path,
       error("E39", path, "a " + role + " array with no `units`");
     }
   }
-  if (has_units && !units_parse(units)) {
-    warn("W10", path, "the units string \"" + units + "\" does not parse");
-  }
+  units_warning(path, attrs);
 
   if (role == "derived" && (find(attrs, "derived_from") == nullptr ||
                             find(attrs, "recipe") == nullptr)) {
@@ -1710,6 +1741,38 @@ void Validator::slot(const std::string& path,
       error("E04", path,
             "`varies` is \"" + varies + "\" and the leading dimension is \"" +
                 leading + "\"");
+    }
+  }
+
+  // E25: the name section 21 allows at each axis position of a slot,
+  // which is (row | group:<k>, [draw], node | cell, component) with the
+  // last two always present.  The leading axis is E04's against
+  // `varies` and is not repeated here; the count on the node, cell and
+  // component axes is E05's and E31's, but the name is this rule's,
+  // or an array whose node axis carried a stranger's scale would pass
+  // every count check by never being counted.
+  if (axes.logical.size() >= 2) {
+    const std::string location =
+        path.find("/cell_arrays/") != std::string::npos ? "cell" : "node";
+    for (std::size_t i = 0; i < axes.logical.size(); ++i) {
+      const std::string& have = axes.logical[i];
+      if (have.empty()) continue;   // no scale, or two: reported above
+      std::string want;
+      if (i + 1 == axes.logical.size()) {
+        want = "component";
+      } else if (i + 2 == axes.logical.size()) {
+        want = location;
+      } else if (i == 0) {
+        continue;
+      } else {
+        want = "draw";
+      }
+      if (have != want) {
+        error("E25", path,
+              "axis " + internal::format_i64(static_cast<std::int64_t>(i)) +
+                  " carries the dimension \"" + have +
+                  "\", where section 21 puts `" + want + "`");
+      }
     }
   }
 

@@ -381,6 +381,9 @@ class _FileValidator:
                     self.keys[member.name] = member.obj
                     if _attr(member.obj, "role") == "group":
                         self.group_keys.append(member.name)
+                else:
+                    self.note("/keys/" + member.name,
+                              "a key is a dataset, and this is a group")
         group = self._root_group("supports")
         if group is not None:
             self.support_names = sorted(
@@ -789,7 +792,8 @@ class _FileValidator:
             self.error("E38", where, "a support of kind %s carries no "
                                      "cell datasets and no cell "
                                      "dimension" % kind)
-        self.guarded(where, self._cells, where, cells, n_nodes)
+        self.guarded(where, self._cells, where, cells, n_nodes,
+                     n_cells if kind == "mesh" else None)
         self.guarded(where, self._support_id, where, group, kind,
                      n_nodes, cells, inside)
 
@@ -840,8 +844,12 @@ class _FileValidator:
                           "ignores it")
 
     def _cells(self, where: str, cells: dict[str, h5py.Dataset],
-               n_nodes: int) -> None:
-        """E21 to E24: the cell arrays against section 20."""
+               n_nodes: int, n_cells: int | None) -> None:
+        """E05 and E21 to E24: the cell arrays against section 20.
+
+        `n_cells` is the count a mesh declares, and None on any other
+        kind, whose cell datasets are E38 alone.
+        """
         if len(cells) != 3:
             return
         types = self.values(cells["cell_types"], where + "/cell_types")
@@ -854,6 +862,17 @@ class _FileValidator:
         if (types.dtype.kind not in "iu" or offsets.dtype.kind not in "iu"
                 or connectivity.dtype.kind not in "iu"):
             return
+        if n_cells is not None and len(types) != n_cells:
+            # The cell count a mesh declares is the length of its
+            # cell_types; a cell array is checked against the
+            # declaration (E05), so the declaration is checked here
+            # against the one dataset that defines it, or a mesh with
+            # no cell arrays would carry any n_cells at all.
+            self.error("E05", where + "/cell_types", "this support "
+                                                     "declares %d cells "
+                                                     "and cell_types "
+                                                     "holds %d"
+                       % (n_cells, len(types)))
         if cells["cell_types"].dtype != np.dtype("u1"):
             self.error("E20", where + "/cell_types", "cell_types is "
                                                      "uint8")
@@ -1135,7 +1154,8 @@ class _FileValidator:
             where = "/callables/" + name
             self._name(name, where)
             if not isinstance(obj, h5py.Group):
-                self.error("E15", where, "a callable is a group")
+                self.note(where, "a callable is a group, and this is a "
+                                 "dataset")
                 continue
             self.guarded(where, self._dictionary_of, obj, where)
 
@@ -1271,13 +1291,15 @@ class _FileValidator:
         # open the attribute a second time, once per attribute of
         # every object in the file.
         shape = tuple(attr.shape)
-        if shape:
+        if shape and kind is not None:
             # Section 18 gives every attribute it names a scalar
-            # dataspace; an array is an encoding this format does
-            # not have.
+            # dataspace. An attribute it does not name is W11 and
+            # nothing else, whatever its shape: section 28 says an
+            # unknown attribute is ignored and reported, and the
+            # other three implementations read it that way.
             self.error("E19", path, "the attribute %s has the shape "
-                                    "%s, and section 18 gives every "
-                                    "attribute a scalar dataspace"
+                                    "%s, and section 18 gives it a "
+                                    "scalar dataspace"
                        % (name, tuple(shape)))
         if isinstance(htype, h5py.h5t.TypeStringID):
             if htype.is_variable_str():
@@ -1315,11 +1337,15 @@ class _FileValidator:
                                             "valid UTF-8" % name)
             return
         dtype = attr.dtype
+        if kind is None:
+            # A numeric attribute section 18 does not name: W11 from
+            # the object's own walk, and no encoding to hold it to.
+            return
         if kind == "string":
             self.error("E19", path, "the attribute %s is a string and "
                                     "is stored as %s" % (name, dtype))
             return
-        if kind == "boolean" or (kind is None and dtype == np.int8):
+        if kind == "boolean":
             if dtype != np.int8:
                 self.error("E19", path, "the boolean attribute %s is "
                                         "int8, and this is %s"
@@ -1344,13 +1370,6 @@ class _FileValidator:
                 self.error("E19", path, "the attribute %s declares a "
                                         "bound, a level or a quantile "
                                         "and must be finite" % name)
-            return
-        if dtype not in (np.dtype("int64"), np.dtype("float64"),
-                         np.dtype("int8")):
-            self.error("E19", path, "the attribute %s is %s; section "
-                                    "18 has int8, int64, float64 and "
-                                    "fixed-length strings"
-                       % (name, dtype))
 
     def _dataset(self, dset: h5py.Dataset, path: str) -> None:
         if h5safe.is_scale(dset):
@@ -1956,6 +1975,18 @@ def _is_iso_utc(text: Any) -> bool:
 
 # ------------------------------------------------------- a dataset only
 
+def _units_text(units: Any, where: str, error: Any, warn: Any) -> None:
+    """E19 for a units that is not text at all, W10 for text that
+    does not parse; an in-memory dataset can hold either."""
+    if units is None or units == "":
+        return
+    if not isinstance(units, str):
+        error("E19", where, "the attribute units is a string, and this "
+                            "is %s" % type(units).__name__)
+    elif not is_parseable(units):
+        warn("W10", where, "the units string %r does not parse" % units)
+
+
 def _validate_dataset(ds: Dataset) -> Report:
     """The rules an in-memory dataset can break.
 
@@ -2009,9 +2040,14 @@ def _validate_dataset(ds: Dataset) -> Report:
         counted[key.role] = counted.get(key.role, 0) + 1
         if key.role in ("design", "condition", "time") and not key.units:
             error("E39", where, "a %s key carries units" % key.role)
-        if key.units and not is_parseable(key.units):
-            warn("W10", where, "the units string %r does not parse"
-                 % key.units)
+        _units_text(key.units, where, error, warn)
+        bounds: list[tuple[str, Any]] = [("lower", key.lower),
+                                         ("upper", key.upper)]
+        for label, value in bounds:
+            if value is not None and not np.isfinite(float(value)):
+                error("E19", where, "the attribute %s declares a bound "
+                                    "and must be finite, and this is %r"
+                      % (label, value))
         if key.role in ("categorical", "group", "split", "status"):
             table = ds.categories.get(key.category or "")
             if table is None:
@@ -2061,9 +2097,7 @@ def _validate_dataset(ds: Dataset) -> Report:
         where = "/scalars/" + name
         if not slot.units:
             error("E11", where, "a scalar carries units")
-        elif not is_parseable(slot.units):
-            warn("W10", where, "the units string %r does not parse"
-                 % slot.units)
+        _units_text(slot.units, where, error, warn)
         _check_source(ds, slot, where, error)
         if slot.data is not None:
             values = np.asarray(slot.data.read())
@@ -2107,9 +2141,7 @@ def _validate_dataset(ds: Dataset) -> Report:
                                          "section 3" % array.role)
             if array.role == "field" and not array.units:
                 error("E11", slot_where, "a field carries units")
-            if array.units and not is_parseable(array.units):
-                warn("W10", slot_where, "the units string %r does not "
-                                        "parse" % array.units)
+            _units_text(array.units, slot_where, error, warn)
             if array.role == "derived" and not (array.derived_from
                                                 and array.recipe):
                 error("E13", slot_where, "a derived array carries "

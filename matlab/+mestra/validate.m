@@ -439,9 +439,8 @@ function checkKeys(ctx)
         checkName(ctx, name{1}, path);
         if ~followable(ctx, g, name{1}, path), continue, end
         if ~strcmp(H5.childType(g, name{1}), 'dataset')
-            rep.add('E39', path, 'a key must be a dataset');
             rep.add('E41', path, ...
-                'a key that is not a dataset cannot be read as one');
+                'a key is a dataset, and this is not one, so there is no key column here to read');
             continue
         end
         role = guard(ctx, path, @() checkOneKey(ctx, g, name{1}, path), '');
@@ -717,8 +716,8 @@ function checkOneScalar(ctx, g, name, path)
         isGroup = false;
         oid = H5.openDataset(g, name);
     else
-        ctx.rep.add('E39', path, 'a scalar must be a dataset or a group');
-        ctx.rep.add('E41', path, 'this scalar cannot be read');
+        ctx.rep.add('E41', path, ...
+            'a scalar is a dataset or a group, and this is neither, so there is nothing here to read');
         return
     end
     checkAttrEncodings(ctx, oid, path);
@@ -830,9 +829,8 @@ function checkSupports(ctx)
         checkName(ctx, name, path);
         if ~followable(ctx, g, name, path), continue, end
         if ~strcmp(H5.childType(g, name), 'group')
-            ctx.rep.add('E39', path, 'a support must be a group');
             ctx.rep.add('E41', path, ...
-                'a support that is not a group cannot be read as one');
+                'a support is a group, and this is not one, so there is no support here to read');
             continue
         end
         index = i - 1;
@@ -884,7 +882,13 @@ function checkOneSupport(ctx, parent, name, index)
     if has('cell_connectivity')
         conn = plainValues(ctx, sid, 'cell_connectivity', path, 'int64');
     end
-    checkCells(ctx, path, types, offsets, conn, nNodes);
+    if strcmp(kind, 'mesh')
+        checkCells(ctx, path, types, offsets, conn, nNodes, nCells);
+    else
+        % A cell dataset on another kind is E38 alone, and the count
+        % it declares is not a cell count.
+        checkCells(ctx, path, types, offsets, conn, nNodes, []);
+    end
 
     % ------------------------------------------------- support_id
     record.kind = kind;
@@ -936,9 +940,9 @@ function checkOneSupport(ctx, parent, name, index)
         if ~has(pairs{p, 1}), continue, end
         groupPath = [path '/' pairs{p, 1}];
         if ~strcmp(H5.childType(sid, pairs{p, 1}), 'group')
-            rep.add('E39', groupPath, '%s must be a group', pairs{p, 1});
             rep.add('E41', groupPath, ...
-                '%s is not a group and cannot be read as one', pairs{p, 1});
+                '%s is a group of slots, and this is not a group, so there are no slots here to read', ...
+                pairs{p, 1});
             continue
         end
         ag = H5.openGroup(sid, pairs{p, 1});
@@ -1016,9 +1020,19 @@ function [values, info] = plainValues(ctx, sid, name, path, wanted)
     H5D.close(did);
 end
 
-function checkCells(ctx, path, types, offsets, conn, nNodes)
+function checkCells(ctx, path, types, offsets, conn, nNodes, nCells)
     rep = ctx.rep;
     if isempty(types) && isempty(offsets) && isempty(conn), return, end
+    if ~isempty(nCells) && numel(types) ~= nCells
+        % The cell count a mesh declares is the length of its
+        % cell_types.  A cell array is checked against the declaration;
+        % the declaration is checked here against the one dataset that
+        % defines it, or a mesh with no cell arrays could declare any
+        % count at all.  nCells is [] on any other kind.
+        rep.add('E05', [path '/cell_types'], ...
+            'the support declares %d cells and cell_types holds %d', ...
+            nCells, numel(types));
+    end
     table = cellTypeTable();
     for i = 1:numel(types)
         if ~table.isKey(types(i))
@@ -1076,8 +1090,8 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
     elseif strcmp(kind_, 'dataset')
         oid = H5D.open(parent, name);
     else
-        rep.add('E39', path, 'a slot must be a dataset or a group');
-        rep.add('E41', path, 'this slot cannot be read');
+        rep.add('E41', path, ...
+            'a slot is a dataset or a group, and this is neither, so there is nothing here to read');
         return
     end
     checkAttrEncodings(ctx, oid, path);
@@ -1277,9 +1291,8 @@ function checkCallables(ctx)
         checkName(ctx, name{1}, path);
         if ~followable(ctx, g, name{1}, path), continue, end
         if ~strcmp(H5.childType(g, name{1}), 'group')
-            ctx.rep.add('E15', path, 'a callable must be a group');
             ctx.rep.add('E41', path, ...
-                'a callable that is not a group cannot be read as one');
+                'a callable is a group, and this is not one, so there is no dictionary here to read');
             continue
         end
         guard(ctx, path, @() checkOneCallable(ctx, g, name{1}, path));

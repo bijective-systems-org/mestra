@@ -79,6 +79,7 @@ function write(dataset, path, varargin)
     p = inputParser();
     p.addParameter('Check', true);
     p.parse(varargin{:});
+    refuseADestinationThatCannotTakeAFile(path);
     if ~p.Results.Check
         mestra.internal.Writer.save(dataset, path);
         return
@@ -103,6 +104,38 @@ function write(dataset, path, varargin)
               mestra.report(r, 'String', true));
     end
     mestra.internal.publishFile(tmp, path);
+end
+
+function refuseADestinationThatCannotTakeAFile(path)
+%refuseADestinationThatCannotTakeAFile  The staging and the publish
+%   both happen in the destination's directory, so a destination that
+%   cannot take a file is refused here, naming the argument, before
+%   anything is validated or created.  A failure after this point is
+%   the operating system's error and leaves an existing destination
+%   as it was.
+    if ~mestra.internal.Args.isText(path) || isempty(char(path))
+        error('mestra:write', ...
+              'path is empty; give the name of the file to write');
+    end
+    path = char(path);
+    if isfolder(path)
+        error('mestra:write', ...
+              ['%s names a directory, which a file cannot replace; ' ...
+               'give a file name'], path);
+    end
+    folder = fileparts(path);
+    if isempty(folder), folder = '.'; end
+    if ~isfolder(folder)
+        error('mestra:write', ...
+              ['the directory %s does not exist; the file is staged ' ...
+               'and published there, so create it first'], folder);
+    end
+    [~, attributes] = fileattrib(folder);
+    if isstruct(attributes) && ~attributes.UserWrite
+        error('mestra:write', ...
+              ['the directory %s is not writable; the file is staged ' ...
+               'and published there'], folder);
+    end
 end
 
 function removeIfPresent(path)

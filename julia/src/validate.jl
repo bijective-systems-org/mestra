@@ -417,8 +417,16 @@ function check_attr_types!(v::Validator, path::String,
             end
         elseif at.ti.class === :float
             if expected === :float
-                at.ti.size == 8 || report!(v, "E19", path,
-                    "float `$(name)` is not float64")
+                if at.ti.size != 8
+                    report!(v, "E19", path, "float `$(name)` is not float64")
+                elseif at.value isa Real && !isfinite(at.value)
+                    # Section 18: an attribute that declares a bound, a
+                    # level or a quantile must be finite, and the four
+                    # float attributes are exactly those.
+                    report!(v, "E19", path,
+                            "`$(name)` declares a bound, a level or a " *
+                            "quantile and must be finite")
+                end
             else
                 report!(v, "E19", path, "`$(name)` is a float")
             end
@@ -558,8 +566,9 @@ function collect_categories!(v::Validator)
     for name in vchildren!(v, g, "/categories")
         d = vopen!(v, g, name, "/categories/$(name)")
         if !(d isa HDF5.Dataset)
-            d === nothing || report!(v, "E30", "/categories/$(name)",
-                "a category table is a dataset")
+            d === nothing || report!(v, "E41", "/categories/$(name)",
+                "a category table is a dataset, and this is a group, so " *
+                "there is no table here to read")
             continue
         end
         guard!(v, "/categories/$(name)") do
@@ -625,10 +634,9 @@ function check_keys!(v::Validator)
         path = "/keys/$(name)"
         d === nothing && continue
         if !(d isa HDF5.Dataset)
-            report!(v, "E30", path, "a key must be a dataset")
             report!(v, "E41", path,
-                    "this is a group, so there is no key column here to " *
-                    "read at all")
+                    "a key is a dataset, and this is a group, so there " *
+                    "is no key column here to read at all")
             continue
         end
         guard!(v, path) do
@@ -750,8 +758,9 @@ function check_key_bounds!(v::Validator, path, name, a)
     lo = a["lower"].value
     hi = a["upper"].value
     (lo isa Real && hi isa Real) || return v
-    (isfinite(lo) && isfinite(hi)) || (report!(v, "E19", path,
-        "a bound must be finite"); return v)
+    # A non-finite bound is E19, reported by check_attr_types!; W04 and
+    # W08 have nothing to measure against it.
+    (isfinite(lo) && isfinite(hi)) || return v
     vals = get(v.keyvals, name, nothing)
     vals === nothing && return v
     nums = Float64[x for x in vals if x isa Real && isfinite(x)]
@@ -1043,11 +1052,9 @@ function check_supports!(v::Validator)
     for name in vchildren!(v, sg, "/supports")
         obj = hard_child(sg, name)
         if obj !== nothing && !(obj isa HDF5.Group)
-            report!(v, "E30", "/supports/$(name)",
-                    "a support is a group, not a dataset")
             report!(v, "E41", "/supports/$(name)",
-                    "this is a dataset, so there is no support here to " *
-                    "read at all")
+                    "a support is a group, and this is a dataset, so " *
+                    "there is no support here to read at all")
         end
     end
     for (i, name) in pairs(v.supports)
@@ -1181,7 +1188,10 @@ function check_cells!(v::Validator, path, g, kind, n_nodes, n_cells)
         (0 <= x < n_nodes) || report!(v, "E24", "$(path)/cell_connectivity",
             "value $(x) is outside [0, $(n_nodes))")
     end
-    length(types) == n_cells || report!(v, "E05", "$(path)/cell_types",
+    # The cell count a mesh declares is the length of its cell_types;
+    # a cell dataset on another kind is E38 alone.
+    kind == "mesh" && length(types) != n_cells && report!(v, "E05",
+        "$(path)/cell_types",
         "$(length(types)) cells where the support declares $(n_cells)")
     return (types, offsets, conn)
 end
@@ -1458,8 +1468,9 @@ function check_callables!(v::Validator)
         g = vopen!(v, cg, id, "/callables/$(id)")
         g === nothing && continue
         path = "/callables/$(id)"
-        g isa HDF5.Group || (report!(v, "E15", path,
-            "a callable must be a group"); continue)
+        g isa HDF5.Group || (report!(v, "E41", path,
+            "a callable is a group, and this is a dataset, so there is " *
+            "no dictionary here to read"); continue)
         guard!(v, path) do
             a = own_attrs(g)
             check_attr_types!(v, path, a)

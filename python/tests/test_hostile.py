@@ -206,7 +206,13 @@ def test_members_of_the_wrong_kind():
     assert "a key is a dataset" in messages
     assert "a support is a group" in messages
     assert "a callable is a group" in messages
-    assert "E15" in report.error_ids
+    # An object of the wrong kind is one the reader cannot read as
+    # what its place says it is (E41), in every language; a callable
+    # that is a dataset is not a callable group without a type (E15).
+    wrong_kind = {f.where for f in report.errors if f.rule == "E41"}
+    assert {"/keys/alpha", "/supports/s1", "/callables/m1"} <= wrong_kind
+    assert "E15" not in report.error_ids
+    # The scalar that is a group with `source = data` is E30.
     assert "E30" in report.error_ids
 
 

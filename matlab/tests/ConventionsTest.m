@@ -479,6 +479,55 @@ classdef ConventionsTest < matlab.unittest.TestCase
             testCase.verifyTrue(isfolder(out));
         end
 
+        function aDestinationThatCannotTakeAFileIsRefusedFirst(testCase)
+        %aDestinationThatCannotTakeAFileIsRefusedFirst  The staging and
+        %   the publish both happen in the destination's directory, so
+        %   a destination that cannot take a file is refused before
+        %   anything is validated or created, as mestra:write naming
+        %   the path, with nothing left behind.
+            folder = tempname(); mkdir(folder);
+            cleanup = onCleanup(@() rmdir(folder, 's'));
+            taken = fullfile(folder, 'taken.mes'); mkdir(taken);
+            probes = {taken, fullfile(folder, 'gone', 'x.mes'), ''};
+            for i = 1:numel(probes)
+                err = ConventionsTest.errorFrom(testCase, ...
+                    @() mestra.write(ConventionsTest.twoRows(), probes{i}), ...
+                    'mestra:write');
+                testCase.verifyFalse(contains(err.message, 'Java'), ...
+                    'the refusal is this package''s own and not the JVM''s');
+            end
+            entries = dir(folder);
+            testCase.verifyEqual({entries(~ismember({entries.name}, {'.', '..'})).name}, ...
+                                 {'taken.mes'});
+            inside = dir(taken);
+            testCase.verifyEmpty(inside(~ismember({inside.name}, {'.', '..'})));
+        end
+
+        function theBuilderRefusesWhatSection18Forbids(testCase)
+        %theBuilderRefusesWhatSection18Forbids  A bound that is not
+        %   finite, units that are not text, a name netCDF-4 would not
+        %   take: each refused at build time with its rule, so that
+        %   the writer never emits what its own validator would refuse.
+            d = ConventionsTest.twoRows();
+            err = ConventionsTest.errorFrom(testCase, ...
+                @() d.addKey('alpha', [1 2], 'condition', 'degree', ...
+                             'Lower', NaN, 'Upper', 3), 'mestra:E19');
+            testCase.verifySubstring(err.message, 'Lower');
+            testCase.verifySubstring(err.message, '/keys/alpha');
+            err = ConventionsTest.errorFrom(testCase, ...
+                @() d.addKey('alpha', [1 2], 'condition', 3), 'mestra:E19');
+            testCase.verifySubstring(err.message, 'units');
+            ConventionsTest.errorFrom(testCase, ...
+                @() d.addScalar('cd', [1 2], 3), 'mestra:E19');
+            err = ConventionsTest.errorFrom(testCase, ...
+                @() d.addKey('al/pha', [1 2], 'condition', '1'), 'mestra:E33');
+            testCase.verifyTrue(startsWith(err.message, 'E33: '));
+            ConventionsTest.errorFrom(testCase, ...
+                @() d.addScalar('mestra_cd', [1 2], '1'), 'mestra:E33');
+            ConventionsTest.errorFrom(testCase, ...
+                @() d.addCategoryTable('a b', {'x'}), 'mestra:E33');
+        end
+
         function everythingTheBuilderMakesValidatesClean(testCase)
         %everythingTheBuilderMakesValidatesClean  Including the chunk
         %   shape, which is M4: the writer picks the default of

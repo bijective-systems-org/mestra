@@ -29,10 +29,12 @@ int usage() {
       "                                   metadata open reads and no slot\n"
       "  info FILE                        what the file holds, in the fields\n"
       "                                   docs/api-conventions.md section 5\n"
-      "                                   lists; it checks the file first and\n"
-      "                                   past that reads attributes and\n"
-      "                                   dataspaces only, so it opens a large\n"
-      "                                   file as fast as a small one\n"
+      "                                   lists; it refuses a file that breaks\n"
+      "                                   a structural rule, as `read` does, and\n"
+      "                                   shows one with a semantic fault; it\n"
+      "                                   reads attributes and dataspaces only,\n"
+      "                                   so it opens a large file as fast as a\n"
+      "                                   small one\n"
       "  integrate FILE SLOT [WEIGHT]     one slot integrated over its support;\n"
       "                                   it says which weight array it used and\n"
       "                                   whether it had to compute one\n"
@@ -259,8 +261,27 @@ void print_slot(const char* kind, const mestra::ArraySlot& a) {
   std::cout << "\n";
 }
 
+// `info` is a metadata open, and it refuses on the structural rules
+// alone, as a read does (conventions section 2): a missing unit or a
+// bad split is what a user runs `info` to find, and refusing the file
+// for it would hide the survey behind the finding.  What it refuses
+// on is decided from what a metadata open reads (section 7), so the
+// same file is refused here and by `read_header`.
+bool refused_for_info(const std::string& path) {
+  const mestra::Report r = mestra::validate_metadata(path);
+  std::size_t structural = 0;
+  for (const mestra::Finding& f : r.errors) {
+    if (!mestra::structural_rule(f.id)) continue;
+    print_finding(f);
+    ++structural;
+  }
+  if (structural == 0) return false;
+  std::cout << structural << " error(s), 0 warning(s)\n";
+  return true;
+}
+
 int cmd_info(const std::string& path) {
-  if (refused(path)) return 1;
+  if (refused_for_info(path)) return 1;
   const mestra::Dataset d = mestra::read_header(path);
   std::cout << "format " << d.format << "\n";
   std::cout << "writer " << d.writer << "\n";

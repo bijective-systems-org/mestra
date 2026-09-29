@@ -67,6 +67,38 @@ def test_failed_replacement_preserves_the_destination(tmp_path, monkeypatch,
         assert not mestra.validate(str(target)).errors
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_a_destination_that_cannot_take_a_file_is_refused_first(tmp_path):
+    """The staging and the publish both happen in the destination's
+    directory (docs/compatibility.md, "Replacing files"), so a
+    destination that cannot take a file is refused before anything
+    is validated or created, with a MestraError that names the path
+    and nothing left behind."""
+    ds = mestra.read(corpus.case_path("mesh_two_rows"), lazy=False)
+    a_directory = tmp_path / "taken.mes"
+    a_directory.mkdir()
+    read_only = tmp_path / "sealed"
+    read_only.mkdir()
+    read_only.chmod(stat.S_IRUSR | stat.S_IXUSR)
+    try:
+        for path, said in ((str(a_directory), "names a directory"),
+                           (str(read_only / "x.mes"), "not writable"),
+                           (str(tmp_path / "gone" / "x.mes"),
+                            "does not exist"),
+                           ("", "path is empty")):
+            with pytest.raises(mestra.MestraError) as caught:
+                mestra.write(ds, path)
+            assert caught.value.rule == ""
+            assert caught.value.where == path
+            assert said in caught.value.message
+    finally:
+        read_only.chmod(stat.S_IRWXU)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["sealed",
+                                                          "taken.mes"]
+    assert list(a_directory.iterdir()) == []
+    assert list(read_only.iterdir()) == []
+
+
 def test_write_validates_first_and_refuses_on_an_error(tmp_path):
     """Section 2 of the conventions: no writer emits a file its own
     validator rejects."""

@@ -489,11 +489,9 @@ Dataset read_impl(const std::string& path, bool with_data) {
 
 }  // namespace
 
-namespace {
-
 // The structural rules of the reading convention: the ones that say a
 // file is not this format, rather than that what it says is wrong.
-bool structural(const std::string& id) {
+bool structural_rule(const std::string& id) {
   if (id.empty()) return true;    // a fault no rule of section 14 covers
   for (const char* rule : {"E01", "E16", "E19", "E25", "E26", "E29",
                            "E30", "E40", "E41"}) {
@@ -502,15 +500,13 @@ bool structural(const std::string& id) {
   return false;
 }
 
-}  // namespace
-
 namespace {
 
 // The structural findings of a pass, and the refusal they make.
 std::vector<Finding> structural_findings(const Report& r) {
   std::vector<Finding> out;
   for (const Finding& f : r.errors) {
-    if (structural(f.id)) out.push_back(f);
+    if (structural_rule(f.id)) out.push_back(f);
   }
   return out;
 }

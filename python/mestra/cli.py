@@ -225,6 +225,8 @@ def _slot_detail(slot: Any) -> str:
     out.append(role)
     if slot.units:
         out.append("units %s" % slot.units)
+    if getattr(slot, "category", None):
+        out.append("categories %s" % slot.category)
     out.append(slot.source)
     if slot.output:
         out.append("output %s" % slot.output)

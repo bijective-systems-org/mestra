@@ -104,9 +104,10 @@ def write(dataset: Dataset, path: str, check: bool = True) -> None:
             "E41", "this dataset was read from a file with parts "
             "that could not be copied (%s), so writing it would lose "
             "them" % ", ".join(sorted(dataset.lossy)[:4]), str(path))
+    target = Path(path)
+    _refuse_a_destination_that_cannot_take_a_file(str(path), target)
     if check:
         _refuse_what_the_validator_would(dataset, str(path))
-    target = Path(path)
     try:
         mode = stat.S_IMODE(target.stat().st_mode)
     except FileNotFoundError:
@@ -122,6 +123,31 @@ def write(dataset: Dataset, path: str, check: bool = True) -> None:
         if mode is not None:
             staged.chmod(mode)
         os.replace(staged, target)
+
+
+def _refuse_a_destination_that_cannot_take_a_file(path: str,
+                                                  target: Path) -> None:
+    """The staging and the publish both happen in the destination's
+    directory, so a destination that cannot take a file is refused
+    here, naming the argument, before anything is validated or
+    created. An I/O failure after this point is the operating
+    system's error and leaves an existing destination as it was.
+    """
+    if not path:
+        raise MestraError("", "path is empty; pass the name of the file "
+                              "to write", path)
+    if target.is_dir():
+        raise MestraError("", "path names a directory, which a file "
+                              "cannot replace; pass a file name", path)
+    parent = target.parent
+    if not parent.is_dir():
+        raise MestraError("", "the directory %s does not exist; the "
+                              "file is staged and published there, so "
+                              "create it first" % parent, path)
+    if not os.access(parent, os.W_OK | os.X_OK):
+        raise MestraError("", "the directory %s is not writable; the "
+                              "file is staged and published there"
+                          % parent, path)
 
 
 def _refuse_what_the_validator_would(dataset: Dataset,
