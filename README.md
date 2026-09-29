@@ -46,7 +46,7 @@ concept, `SPEC.md` is the reference, and each of `python/`, `matlab/`,
 `cpp/` and `julia/` has a README for that interface.
 
 Status: **specification version 0**, with Python, MATLAB, C++ and Julia
-implementations checked against a 75-case conformance corpus and a
+implementations checked against an 81-case conformance corpus and a
 hostile-file subset. MATLAB supports ASCII strings only; see the
 [capability table](docs/compatibility.md) for implementation limits and
 the distinction between reading a model file and executing its callable.
