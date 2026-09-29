@@ -79,6 +79,13 @@ struct ReadOptions {
   bool strict = true;
 };
 
+// Whether a rule identifier is one of the nine structural rules a
+// strict read refuses on, or is empty, which is a fault no rule of
+// section 14 covers and is refused the same way.  A tool that opens
+// a file for its metadata gates on this and on nothing else, so that
+// it works on the files a user most needs to look at.
+bool structural_rule(const std::string& id);
+
 // Reads a whole file.  Throws Error carrying the first rule
 // identifier, and every structural finding in its message, when a
 // strict read meets one; and Error with the rule identifier for the
