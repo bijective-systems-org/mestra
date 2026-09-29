@@ -1299,8 +1299,14 @@ class Dataset:
             array = _numbers(values, None, name)
             if array.dtype.kind in "US":
                 array = array.astype(np.str_)
-            else:
+            elif array.dtype.kind in "iub":
                 array = array.astype(dtype or "<i8")
+            else:
+                raise MestraError(
+                    "E20", "an id key stores row identifiers, which are "
+                    "integers or text; these values are %s. Pass the "
+                    "identifiers as they are, not as floats"
+                    % array.dtype, name)
         else:
             array = _numbers(values, dtype or "<f8", name)
         if array.ndim != 1:

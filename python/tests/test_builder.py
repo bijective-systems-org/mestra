@@ -471,6 +471,19 @@ def test_a_categorical_key_is_an_integer():
     assert caught.value.rule == "E20"
 
 
+def test_an_id_key_is_integers_or_text():
+    # A float id was truncated to an integer in silence; the Julia
+    # builder refuses it, and so does this one.
+    ds = mestra.Dataset(writer="t")
+    with pytest.raises(MestraError) as caught:
+        ds.add_key("run", [1.0, 2.5], role="id")
+    assert caught.value.rule == "E20"
+    assert "row identifiers" in caught.value.message
+    ds.add_key("run", [1, 2], role="id")
+    other = mestra.Dataset(writer="t")
+    other.add_key("case", ["a", "b"], role="id")
+
+
 def test_two_supports_need_a_row_support(tmp_path):
     ds = mestra.Dataset(writer="t")
     ds.add_key("mach", [0.4, 0.5, 0.6], role="condition", units="1")
