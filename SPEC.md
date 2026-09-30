@@ -810,7 +810,10 @@ Roles and rules:
   - The byte-level rules of sections 18 to 25 are checked on the public
     objects only (section 14).
   - A reader treats a file as untrusted input: no crash, no hang, no
-    unbounded allocation; it never follows a link that is not a hard link
+    unbounded allocation in the reader's own code (the HDF5 library
+    beneath it parses the file first and is outside this promise; the
+    compatibility notes say what that means); it never follows a link
+    that is not a hard link
     (E40); an object it cannot read is E41 and the pass continues;
     recursion is capped and an eager read has a stated maximum element
     count, 2^31 by default (sections 14 and 29).
@@ -1874,9 +1877,12 @@ the layout of sections 19 to 23 is what makes them possible.
     ignore, must report it, and must not fail on it.
   - A reader must not require /notes or /private, and must not
     interpret /private.
-  - Untrusted input. A reader treats a file as untrusted input. It
-    must not crash, hang, or allocate without bound on a malformed
-    one, whatever the file does. Four rules make that reachable.
+  - Untrusted input. A reader treats a file as untrusted input. Its
+    own code must not crash, hang, or allocate without bound on a
+    malformed one, whatever the file does; the HDF5 library it reads
+    through can still fault on a crafted byte before that code runs,
+    and an implementation says so in its compatibility notes. Four
+    rules make the reader's part reachable.
     It never follows a link that is not a hard link: a soft link,
     resolving or not, and an external link are E40 and are not
     opened. An object it cannot read is reported as E41 with its

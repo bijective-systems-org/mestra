@@ -82,7 +82,7 @@ from .validator import Report, validate
 from .weights import compute_weights
 from .writer import write
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 #: The format version this package reads and writes.
 FORMAT = "mestra/0"

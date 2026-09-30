@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mestra"
-version = "0.1.2"
+version = "0.1.3"
 description = "A container for simulation and surrogate data: reader, writer, validator and post-processing for the mestra format."
 readme = "README.md"
 requires-python = ">=3.10"

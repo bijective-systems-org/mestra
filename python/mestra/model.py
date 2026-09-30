@@ -1613,13 +1613,6 @@ class Dataset:
                 out["/supports/%s/%s" % (sname, where)] = slot
         return out
 
-    def support_of_slot(self, path: str) -> Support | None:
-        """The support a slot path sits under, or None."""
-        parts = path.strip("/").split("/")
-        if len(parts) >= 2 and parts[0] == "supports":
-            return self.supports.get(parts[1])
-        return None
-
     # -- adapters
 
     def to_xarray(self) -> Any:
