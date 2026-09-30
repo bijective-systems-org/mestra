@@ -436,12 +436,3 @@ class Affine(Callable):
         shape = tuple(int(n) for n in entry["shape"])
         return out.reshape((rows,) + shape)
 
-    # -- building one
-
-    @classmethod
-    def from_arrays(cls, keys: Sequence[str],
-                    outputs: Mapping[str, tuple[Any, Any, Sequence[int]]]
-                    ) -> Affine:
-        """Build from (A, b, shape) triples, one per output."""
-        return cls(keys, {name: {"A": a, "b": b, "shape": shape}
-                          for name, (a, b, shape) in outputs.items()})
