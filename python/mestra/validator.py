@@ -1000,6 +1000,12 @@ class _FileValidator:
         if components is None:
             self.error("E31", where, "an array slot declares its "
                                      "components")
+        if not (varies in ("none", "row") or varies.startswith("group:")):
+            # Section 5 names three: none, row and group:<k>. No
+            # leading dimension agrees with any other word.
+            self.error("E04", where, "varies is none, row or group:<k>, "
+                                     "and this is %r" % varies)
+            return role
 
         if not isinstance(member, h5py.Dataset):
             return role

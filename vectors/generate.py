@@ -2631,6 +2631,12 @@ CASES = {
         "An array whose varies names a group key the file does not "
         "declare.",
         errors=["E04"], support_ids={"s0": MESH_SID}),
+    "err_e04_unknown_varies": mk(
+        mesh_base, {"pressure_varies": "sideways"},
+        "A field whose varies is none of the three words section 5 "
+        "names. Its shape has as many axes as a row-varying one, so only "
+        "the word itself is wrong.",
+        errors=["E04"], support_ids={"s0": MESH_SID}),
     "err_e05": mk(
         mesh_base, {"pressure": PRESSURE_2[:, :5, :]},
         "A node array of five nodes on a support of six.",
@@ -2809,6 +2815,11 @@ CASES = {
         mesh_base, {"pressure_components": 2},
         "A field declaring two components over a component dimension "
         "of length one.",
+        errors=["E31"], support_ids={"s0": MESH_SID}),
+    "err_e31_negative": mk(
+        mesh_base, {"pressure_components": -1},
+        "A field declaring -1 components over a component dimension of "
+        "length one.",
         errors=["E31"], support_ids={"s0": MESH_SID}),
     "err_e32": mk(
         affine_base, {"type": "example", "zero_d_key": True},

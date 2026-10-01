@@ -1711,8 +1711,22 @@ void Validator::slot(const std::string& path,
   if (components_attr == nullptr) {
     error("E31", path, "an array slot with no `components`");
   }
+  // Whether there is a number to compare is its own fact: a stored -1
+  // is a count no axis has, not the absence of one.
+  const bool has_components =
+      components_attr != nullptr &&
+      components_attr->value.kind() == AttrValue::Kind::Int;
   const std::int64_t components =
-      components_attr != nullptr ? components_attr->value.as_int() : -1;
+      has_components ? components_attr->value.as_int() : 0;
+
+  // Section 5 names three values of `varies`, and no leading dimension
+  // agrees with any other word.
+  if (has_varies && varies != "none" && varies != "row" &&
+      varies.compare(0, 6, "group:") != 0) {
+    error("E04", path,
+          "`varies` is none, row or group:<k>, and this is \"" + varies +
+              "\"");
+  }
 
   if (is_coordinates && support_kind == "axis" && has_varies &&
       varies != "none") {
@@ -1804,7 +1818,7 @@ void Validator::slot(const std::string& path,
   }
 
   const int comp_axis = axes.index_of("component");
-  if (comp_axis >= 0 && components >= 0 &&
+  if (comp_axis >= 0 && has_components &&
       static_cast<std::int64_t>(
           axes.extent[static_cast<std::size_t>(comp_axis)]) != components) {
     error("E31", path,
