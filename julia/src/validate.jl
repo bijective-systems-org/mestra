@@ -650,8 +650,12 @@ function check_keys!(v::Validator)
         end
         role = get(v.keyroles, name, nothing)
         if role === nothing
-            report!(v, "E02", path, "no `role` attribute")
-            v.missing_public = true
+            # A role stored in the wrong encoding is E19's to report,
+            # and it is not missing.
+            if !haskey(a, "role")
+                report!(v, "E02", path, "no `role` attribute")
+                v.missing_public = true
+            end
             return
         end
         if !(Symbol(role) in KEY_ROLES)
@@ -1281,9 +1285,11 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
         end
         role = haskey(a, "role") && a["role"].value isa AbstractString ?
                a["role"].value : nothing
-        if role === nothing
+        if role === nothing && !haskey(a, "role")
             report!(v, "E02", spath, "no `role` attribute")
             v.missing_public = true
+        elseif role === nothing
+            # Stored in the wrong encoding: E19's, not missing.
         elseif !(Symbol(role) in ARRAY_ROLES)
             report!(v, "E02", spath, "`$(role)` is not a role of section 3")
             v.missing_public = true

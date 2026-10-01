@@ -2807,6 +2807,13 @@ CASES = {
         "A units attribute stored as a variable-length string, which "
         "section 18 forbids anywhere in the file.",
         errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_vlen_role": mk(
+        then(mesh_base, lambda f: (
+            f["keys/mach"].attrs.__delitem__("role"),
+            vattr(f["keys/mach"], "role", "condition"))), {},
+        "A key whose role is stored as a variable-length string. That is "
+        "E19; the role is there, so it is not E02 as well.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
     "err_e19_big_endian": mk(
         then(mesh_base, lambda f: big_endian_attr(
             f["supports/s0"], "n_cells", 2)),
