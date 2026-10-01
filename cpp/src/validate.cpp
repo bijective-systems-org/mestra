@@ -871,6 +871,10 @@ struct KeyInfo {
   std::string category;
   std::string trajectory_group;
   DType dtype = DType::Float64;
+  // False when the stored dtype is not one section 19 allows for the
+  // role (E20): the values are then not read as ids, and E10 and W07,
+  // which are about ids, have nothing to say.
+  bool dtype_allowed = true;
   std::vector<double> f64;
   std::vector<std::int64_t> i64;
   bool has_lower = false;
@@ -971,6 +975,7 @@ void Validator::keys() {
         error("E20", p,
               "the dtype is not one section 19 allows for role " + k.role);
       }
+      k.dtype_allowed = allowed;
     }
 
     const RawAttr* lower = find(attrs, "lower");
@@ -1056,6 +1061,8 @@ void Validator::keys() {
       } else if (unread("/categories/" + k.category)) {
         // The table is E41 and its entries were never read, so
         // nothing here can be said about the ids in this column.
+      } else if (!k.dtype_allowed) {
+        // E20 already: the column is not category ids.
       } else {
         const std::int64_t n = static_cast<std::int64_t>(it->second.size());
         bool outside = false;

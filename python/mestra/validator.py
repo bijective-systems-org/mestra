@@ -570,14 +570,14 @@ class _FileValidator:
         if role in ("design", "condition", "time"):
             _ = self._float64(dset, where, "a %s key" % role)
         elif role in ("categorical", "group", "split", "status"):
-            if dtype.kind not in "iu" or dtype.itemsize not in (4, 8):
-                self.error("E20", where, "a %s key is int32 or int64, "
-                                         "and this is %s"
+            if dtype not in _SIGNED_LE:
+                self.error("E20", where, "a %s key is little-endian "
+                                         "int32 or int64, and this is %s"
                            % (role, dtype))
-        elif role == "id" and not is_fixed_string(dtype) and not (
-                dtype.kind == "i" and dtype.itemsize == 8):
-            self.error("E20", where, "an id key is int64 or a "
-                                     "fixed-length UTF-8 string")
+        elif role == "id" and not is_fixed_string(dtype) and \
+                dtype != np.dtype("<i8"):
+            self.error("E20", where, "an id key is little-endian int64 "
+                                     "or a fixed-length UTF-8 string")
 
     def _categories_of(self, dset: h5py.Dataset, where: str,
                        role: str | None) -> None:
@@ -1067,10 +1067,10 @@ class _FileValidator:
     def _array_dtype(self, dset: h5py.Dataset, where: str,
                      role: str | None) -> None:
         if role == "label":
-            if dset.dtype.kind not in "iu" or \
-                    dset.dtype.itemsize not in (4, 8):
-                self.error("E20", where, "a label is int32 or int64, "
-                                         "and this is %s" % dset.dtype)
+            if dset.dtype not in _SIGNED_LE:
+                self.error("E20", where, "a label is little-endian int32 "
+                                         "or int64, and this is %s"
+                           % dset.dtype)
             return
         if role in ("coordinates", "field", "derived", "weight",
                     "normal"):
@@ -1854,6 +1854,11 @@ def _marked_recomputed(obj: Any) -> bool:
     return value is True or (isinstance(value, (np.integer, int))
                              and not isinstance(value, bool)
                              and int(value) == 1)
+
+
+#: Section 19's integer dtypes for category ids and labels: signed and
+#: little-endian, which a test of kind and size alone does not see.
+_SIGNED_LE = (np.dtype("<i4"), np.dtype("<i8"))
 
 
 def _names(obj: Any) -> list[str]:

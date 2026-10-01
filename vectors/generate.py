@@ -2794,6 +2794,15 @@ CASES = {
         "A scalar stored as big-endian float64. Section 19 stores every "
         "numeric dataset little-endian.",
         errors=["E20"], support_ids={"s0": MESH_SID}),
+    "err_e20_unsigned_key": mk(
+        mesh_base, {"member_dtype": "<u4"},
+        "A group key stored as uint32. Section 19 gives category ids "
+        "int32 or int64, which are signed.",
+        errors=["E20"], support_ids={"s0": MESH_SID}),
+    "err_e20_big_endian_key": mk(
+        mesh_base, {"member_dtype": ">i4"},
+        "A group key stored as big-endian int32.",
+        errors=["E20"], support_ids={"s0": MESH_SID}),
     "err_e20": mk(
         mesh_base, {"pressure_dtype": "<f4"},
         "A field stored as float32, which is not allowed anywhere.",
