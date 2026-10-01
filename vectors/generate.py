@@ -3057,6 +3057,14 @@ CASES = {
         then(mesh_base, soft_link_in("supports/s0")), {},
         "A soft link inside a support group, beside its cell arrays.",
         errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e41_support_dataset": mk(
+        then(mesh_base, lambda f: f["supports"].create_dataset(
+            "s1", data=np.arange(3.0), track_times=False)), {},
+        "A dataset beside the one support under /supports. It is not a "
+        "support, so the file still declares one and is aligned; it is "
+        "an object a reader cannot read as one (E41), and a public "
+        "dataset with no dimension scale (E25).",
+        errors=["E25", "E41"], support_ids={"s0": MESH_SID}),
     "err_e42": mk(
         mesh_base, {"plain_scales": ("component_1",)},
         "A dimension scale created with the library's default "

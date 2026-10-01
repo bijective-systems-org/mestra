@@ -255,10 +255,18 @@ function ctx = gather(ctx)
         H5G.close(g);
     end
 
+    % A support is a group reached by a hard link; anything else under
+    % /supports is reported where it is met (E40, E41) and is not a
+    % support, so it neither counts for E37 nor takes a place in the
+    % support order of section 22.
     ctx.supportNames = {};
+    ctx.supportMembers = {};
     if mestra.internal.Reader.hasGroup(ctx.fid, 'supports')
         g = H5.openGroup(ctx.fid, 'supports');
-        ctx.supportNames = H5.children(g);
+        ctx.supportMembers = H5.children(g);
+        isGroup = cellfun(@(n) strcmp(H5.childType(g, n), 'group'), ...
+                          ctx.supportMembers);
+        ctx.supportNames = ctx.supportMembers(isGroup);
         H5G.close(g);
     end
 
@@ -847,17 +855,19 @@ function checkSupports(ctx)
     if ~mestra.internal.Reader.hasGroup(ctx.fid, 'supports'), return, end
     g = H5.openGroup(ctx.fid, 'supports');
     closer = onCleanup(@() H5G.close(g)); %#ok<NASGU>
-    for i = 1:numel(ctx.supportNames)
-        name = ctx.supportNames{i};
+    for i = 1:numel(ctx.supportMembers)
+        name = ctx.supportMembers{i};
         path = ['/supports/' name];
         checkName(ctx, name, path);
         if ~followable(ctx, g, name, path), continue, end
         if ~strcmp(H5.childType(g, name), 'group')
             ctx.rep.add('E41', path, ...
                 'a support is a group, and this is not one, so there is no support here to read');
+            % Still a public dataset, so the byte-level rules hold.
+            guard(ctx, path, @() checkUnknownDataset(ctx, g, name, path));
             continue
         end
-        index = i - 1;
+        index = find(strcmp(ctx.supportNames, name), 1) - 1;
         guard(ctx, path, @() checkOneSupport(ctx, g, name, index));
     end
 end
