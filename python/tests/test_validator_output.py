@@ -164,3 +164,13 @@ def test_two_arrays_of_one_role_at_one_location_are_still_e03():
     mestra.compute_weights(support, "node")
     mestra.compute_weights(support, "node", name="lumped")
     assert "E03" in mestra.validate(ds).error_ids
+
+
+def test_a_finding_about_an_illegal_name_stays_on_one_line():
+    """Every tool prints one finding per line (conventions section
+    5), and a name that breaks E33 may hold a newline; it is written
+    as \\x0a rather than ending the line."""
+    report = mestra.validate(corpus.case_path("err_e33_newline"))
+    line = str(report.errors[0])
+    assert "\n" not in line
+    assert line.startswith("E33 /keys/mach\\x0a: ")

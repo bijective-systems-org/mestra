@@ -2802,6 +2802,11 @@ CASES = {
         mesh_base, {"mach_name": "mestra_mach"},
         "A producer-chosen name beginning with the reserved prefix.",
         errors=["E33"], support_ids={"s0": MESH_SID}),
+    "err_e33_newline": mk(
+        mesh_base, {"mach_name": "mach\n"},
+        "A key whose name ends in a newline, which is not a character a "
+        "netCDF-4 name may hold.",
+        errors=["E33"], support_ids={"s0": MESH_SID}),
     "err_e34": mk(
         mesh_base, {"n_group": 3, "coords": MEMBER_COORDS_3},
         "A group-varying array with three instances over a group key "

@@ -61,12 +61,12 @@ function out = report(findings, varargin)
                 case 'U', nErrors = nErrors + 1;
             end
         end
-        path = f(i).path;
+        path = oneLine(f(i).path);
         if isempty(path), path = '/'; end
         if isempty(f(i).message)
             lines{i} = sprintf('%s %s', id, path);
         else
-            lines{i} = sprintf('%s %s: %s', id, path, f(i).message);
+            lines{i} = sprintf('%s %s: %s', id, path, oneLine(f(i).message));
         end
     end
     lines{end} = sprintf('%d error(s), %d warning(s)', nErrors, nWarnings);
@@ -80,4 +80,20 @@ function out = report(findings, varargin)
     if nargout > 0
         out = nErrors;
     end
+end
+
+function s = oneLine(s)
+%oneLine  A control character, which an illegal name can hold, written
+%   as \xHH, so that a finding stays on its one line.
+    bad = double(s) < 32 | double(s) == 127;
+    if ~any(bad), return, end
+    parts = cell(1, numel(s));
+    for i = 1:numel(s)
+        if bad(i)
+            parts{i} = sprintf('\\x%02x', double(s(i)));
+        else
+            parts{i} = s(i);
+        end
+    end
+    s = [parts{:}];
 end

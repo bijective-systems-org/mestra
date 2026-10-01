@@ -1082,6 +1082,13 @@ end
     @test vec(Mestra.raw_data(ds.scalars["cl"])) == [0.25, 0.55]
 end
 
+@testset "a finding about an illegal name stays on one line (conventions 5)" begin
+    f = Mestra.validate(case_file("err_e33_newline")).findings[1]
+    line = sprint(show, f)
+    @test !occursin('\n', line)
+    @test startswith(line, "E33 /keys/mach\\x0a: ")
+end
+
 @testset "a link anywhere in the public tree is E40 (sections 14 and 29)" begin
     # The validator met links only where it walked members for its own
     # reasons, which left out /notes and the group a callable slot is,

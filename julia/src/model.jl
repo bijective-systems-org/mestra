@@ -46,7 +46,14 @@ end
 # `<id> <path>: <message>`, which is the one line every language
 # prints (`docs/api-conventions.md` section 5).
 Base.show(io::IO, f::Finding) =
-    print(io, f.rule, " ", f.path, ": ", f.message)
+    print(io, f.rule, " ", one_line(f.path), ": ", one_line(f.message))
+
+"""A path or a message as part of one printed line: a control
+character, which an illegal name can hold, is written as \\xHH so that
+the finding stays on its line."""
+one_line(s::AbstractString) =
+    join((c < ' ' || c == '\x7f') ? "\\x" * string(UInt32(c), base = 16, pad = 2) :
+         string(c) for c in s)
 
 const KEY_ROLES = (:design, :condition, :time, :categorical, :group,
                    :split, :id, :status)

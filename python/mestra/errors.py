@@ -61,5 +61,14 @@ class Finding:
 
     def __str__(self) -> str:
         if self.where:
-            return "%s %s: %s" % (self.rule, self.where, self.message)
-        return "%s: %s" % (self.rule, self.message)
+            return "%s %s: %s" % (self.rule, _one_line(self.where),
+                                  _one_line(self.message))
+        return "%s: %s" % (self.rule, _one_line(self.message))
+
+
+def _one_line(text: str) -> str:
+    """A path or a message as part of one printed line: a control
+    character, which an illegal name can hold, is written as \\xHH so
+    that the finding stays on its line."""
+    return "".join("\\x%02x" % ord(c) if ord(c) < 32 or ord(c) == 127
+                   else c for c in text)

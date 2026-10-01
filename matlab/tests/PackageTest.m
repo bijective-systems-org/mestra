@@ -545,6 +545,19 @@ classdef PackageTest < matlab.unittest.TestCase
             found = r.findings(strcmp({r.findings.id}, 'W07'));
             testCase.verifyEqual({found.path}, {'/keys/member'});
         end
+
+        function aFindingAboutAnIllegalNameStaysOnOneLine(testCase)
+        %aFindingAboutAnIllegalNameStaysOnOneLine  One finding per
+        %   line (conventions section 5), and a name that breaks E33
+        %   may hold a newline: it is printed as \x0a.
+            r = mestra.validate(fullfile(corpusRoot(), ...
+                                         'err_e33_newline', 'case.mes'));
+            text = mestra.report(r, 'String', true);
+            lines = strsplit(strtrim(text), newline);
+            testCase.verifyEqual(numel(lines), 2, text);
+            testCase.verifyTrue(startsWith(lines{1}, ...
+                'E33 /keys/mach\x0a: '), lines{1});
+        end
     end
 
     methods (Static)
