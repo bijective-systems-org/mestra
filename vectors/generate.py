@@ -2728,6 +2728,14 @@ CASES = {
         "not to look. A validator sees the missing root attribute as "
         "E39; E18 is what a writer review adds to it.",
         errors=["E18", "E39"], support_ids={"s0": MESH_SID}),
+    "err_e18_role": mk(
+        mesh_base, {"extra_keys": [("flow", "regime", [0.0, 1.0], "<f8",
+                                    [("units", "1")])],
+                    "private_gen": True},
+        "A key whose role is a word section 3 does not have, in a file "
+        "that also carries /private. E18 goes beside any E02, not only "
+        "beside a role that is absent.",
+        errors=["E02", "E18"], support_ids={"s0": MESH_SID}),
     "err_e19": mk(
         mesh_base, {"cl_units_vlen": True},
         "A units attribute stored as a variable-length string, which "
@@ -2815,6 +2823,12 @@ CASES = {
         mesh_base, {"pressure_components": 2},
         "A field declaring two components over a component dimension "
         "of length one.",
+        errors=["E31"], support_ids={"s0": MESH_SID}),
+    "err_e31_missing": mk(
+        then(mesh_base, lambda f: f["supports/s0/node_arrays/pressure"]
+             .attrs.__delitem__("components")), {},
+        "A field with no components attribute, which section 14 makes "
+        "E31 and not E39.",
         errors=["E31"], support_ids={"s0": MESH_SID}),
     "err_e31_negative": mk(
         mesh_base, {"pressure_components": -1},

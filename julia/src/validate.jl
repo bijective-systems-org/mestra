@@ -656,6 +656,9 @@ function check_keys!(v::Validator)
         end
         if !(Symbol(role) in KEY_ROLES)
             report!(v, "E02", path, "`$(role)` is not a role of section 3")
+            # E18 goes beside any E02, as the other implementations
+            # read section 14, and not only beside a missing role.
+            v.missing_public = true
             return
         end
         kdims, _ = disk_shape(d)
@@ -1267,6 +1270,7 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
             v.missing_public = true
         elseif !(Symbol(role) in ARRAY_ROLES)
             report!(v, "E02", spath, "`$(role)` is not a role of section 3")
+            v.missing_public = true
             role = nothing
         end
         role == "weight" && (nweight[loc] += 1)
@@ -1275,7 +1279,9 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
         check_statistic!(v, spath, a)
         haskey(a, "varies") || (report!(v, "E39", spath,
             "`varies` is missing"); v.missing_public = true)
-        haskey(a, "components") || (report!(v, "E39", spath,
+        # Section 14: a slot without `components` is E31, which E39
+        # names as the rule that covers it.
+        haskey(a, "components") || (report!(v, "E31", spath,
             "`components` is missing"); v.missing_public = true)
         if role == "field" || role == "derived"
             if !haskey(a, "units")
