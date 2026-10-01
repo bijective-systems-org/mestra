@@ -1292,8 +1292,13 @@ OpaqueGroup capture_group(const File& f, const std::string& path) {
   Id mem(H5Fcreate("mestra-opaque.mem", H5F_ACC_TRUNC, H5P_DEFAULT,
                    fapl.get()));
   need(mem.valid(), "cannot make an in-memory HDF5 file");
+  // The copy keeps its path, and a group that is not at the root --
+  // one a support carries -- needs its parents made in the image.
+  Id lcpl(H5Pcreate(H5P_LINK_CREATE));
+  need(lcpl.valid() && H5Pset_create_intermediate_group(lcpl.get(), 1) >= 0,
+       "cannot make a link creation property list");
   need(H5Ocopy(f.get(), path.c_str(), mem.get(), path.c_str(), H5P_DEFAULT,
-               H5P_DEFAULT) >= 0,
+               lcpl.get()) >= 0,
        "cannot copy \"" + path + "\"");
   for (const std::string& p : groups) drop_reference_attributes(mem.get(), p);
   for (const std::string& p : datasets) drop_reference_attributes(mem.get(), p);

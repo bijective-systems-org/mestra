@@ -1333,7 +1333,8 @@ classdef H5
             tree.stopped = {};
             tree.attrs = H5.captureAttrs([]);
             tree.datasets = struct('name', {}, 'info', {}, 'data', {}, ...
-                                   'scales', {}, 'label', {}, 'attrs', {});
+                                   'scales', {}, 'label', {}, 'attrs', {}, ...
+                                   'scalePaths', {});
             tree.groups = struct('name', {}, 'tree', {});
             if depth > mestra.internal.Limits.get('maxDepth')
                 tree.stopped{end + 1} = sprintf( ...
@@ -1396,16 +1397,23 @@ classdef H5
                 rec.data = H5.readData(did, info);
             end
             rec.scales = cell(1, numel(info.dims));
+            scalePaths = cell(1, numel(info.dims));
             for axis = 1:numel(info.dims)
                 found = H5.scaleNames(did, axis - 1, map);
                 if isempty(found)
                     rec.scales{axis} = '';
+                    scalePaths{axis} = '';
                 else
                     rec.scales{axis} = found(1).name;
+                    scalePaths{axis} = found(1).path;
                 end
             end
             rec.label = '';
             rec.attrs = H5.captureAttrs(did);
+            % The scale's path in the file, so that one outside the
+            % copied group -- a support's node, the file's row -- is
+            % attached again in the rewrite, which writes it too.
+            rec.scalePaths = scalePaths;
             if info.isScale && H5.hasAttr(did, 'NAME')
                 label = H5.readAttr(did, 'NAME');
                 if ischar(label), rec.label = label; end
@@ -1496,18 +1504,6 @@ classdef H5
                 H5.replayAttrs(did, ds.attrs);
                 made(ds.name) = did;
             end
-            for i = 1:numel(tree.datasets)
-                ds = tree.datasets(i);
-                for axis = 1:numel(ds.scales)
-                    if ~isempty(ds.scales{axis}) && made.isKey(ds.scales{axis})
-                        H5DS.attach_scale(made(ds.name), ...
-                                          made(ds.scales{axis}), axis - 1);
-                    end
-                end
-            end
-            for key = made.keys()
-                H5D.close(made(key{1}));
-            end
             for i = 1:numel(tree.groups)
                 gcpl = H5.plist('H5P_GROUP_CREATE');
                 sub = H5G.create(gid, tree.groups(i).name, 'H5P_DEFAULT', ...
@@ -1515,6 +1511,31 @@ classdef H5
                 H5P.close(gcpl);
                 H5.replayTree(sub, tree.groups(i).tree);
                 H5G.close(sub);
+            end
+            % Attached after the subgroups exist, so that a scale kept
+            % in one of them is there to attach.
+            fid = H5I.get_file_id(gid);
+            for i = 1:numel(tree.datasets)
+                ds = tree.datasets(i);
+                for axis = 1:numel(ds.scales)
+                    if ~isempty(ds.scales{axis}) && made.isKey(ds.scales{axis})
+                        H5DS.attach_scale(made(ds.name), ...
+                                          made(ds.scales{axis}), axis - 1);
+                    elseif isfield(ds, 'scalePaths') && ...
+                            numel(ds.scalePaths) >= axis && ...
+                            ~isempty(ds.scalePaths{axis}) && ...
+                            H5.exists(fid, ds.scalePaths{axis})
+                        sd = H5D.open(fid, ds.scalePaths{axis});
+                        if H5DS.is_scale(sd)
+                            H5DS.attach_scale(made(ds.name), sd, axis - 1);
+                        end
+                        H5D.close(sd);
+                    end
+                end
+            end
+            H5F.close(fid);
+            for key = made.keys()
+                H5D.close(made(key{1}));
             end
         end
 

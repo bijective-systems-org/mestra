@@ -807,9 +807,20 @@ classdef Reader
             known = {'coordinates', 'node_arrays', 'cell_arrays', ...
                      'cell_types', 'cell_offsets', 'cell_connectivity', ...
                      'node', 'cell', 'cell_plus_one', 'index', 'row'};
+            rec(1).extraGroups = struct('name', {}, 'tree', {});
             for nm = H5.children(sid)
-                if ismember(nm{1}, known) || ...
-                        ~strcmp(H5.childType(sid, nm{1}), 'dataset')
+                if ismember(nm{1}, known), continue, end
+                if strcmp(H5.childType(sid, nm{1}), 'group')
+                    % A group this version does not know: copied whole,
+                    % so that a rewrite carries it (section 28).
+                    eg = H5G.open(sid, nm{1});
+                    tree = H5.captureTree(eg, map);
+                    H5G.close(eg);
+                    rec(1).extraGroups(end + 1) = ...
+                        struct('name', nm{1}, 'tree', tree);
+                    continue
+                end
+                if ~strcmp(H5.childType(sid, nm{1}), 'dataset')
                     continue
                 end
                 did = H5D.open(sid, nm{1});

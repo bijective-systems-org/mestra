@@ -1543,7 +1543,7 @@ function checkDimensionScales(ctx)
     addresses = ctx.scales.keys();
     for i = 1:numel(addresses)
         s = ctx.scales(addresses{i});
-        if isPrivate(s.path), continue, end
+        if isPrivate(s.path) || inUnknownGroup(s.path), continue, end
         if bitand(s.order, want) ~= want
             ctx.rep.add('E42', s.path, ...
                 ['this dimension scale was created without attribute ' ...
@@ -1556,6 +1556,22 @@ function checkDimensionScales(ctx)
                 ['the dimension "%s" is unlimited; only `row`, ' ...
                  'file-level or support-local, may be'], s.name);
         end
+    end
+end
+
+function tf = inUnknownGroup(path)
+%inUnknownGroup  True for an object inside a group this version does not
+%   know, at the root or in a support: section 14 leaves it alone apart
+%   from W11, so the byte-level rules are not checked inside it.
+    parts = strsplit(path, '/');
+    parts = parts(~cellfun(@isempty, parts));
+    tf = false;
+    if numel(parts) >= 2 && ...
+            ~ismember(parts{1}, mestra.internal.Reader.ROOT_GROUPS)
+        tf = true;
+    elseif numel(parts) >= 4 && strcmp(parts{1}, 'supports') && ...
+            ~ismember(parts{3}, {'node_arrays', 'cell_arrays'})
+        tf = true;
     end
 end
 

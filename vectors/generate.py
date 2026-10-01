@@ -2540,6 +2540,17 @@ def dictionary_array_of(dtype):
     return change
 
 
+def unknown_group_with_contents(f):
+    """A root group this version does not know, holding what the
+    byte-level rules would refuse in the public part: an unlimited
+    dimension that is not `row`."""
+    g = f.create_group("extras")
+    events = scale(g, "events", 3, unlimited=True)
+    d = g.create_dataset("log", data=np.arange(3.0), maxshape=(None,),
+                         chunks=(3,), track_times=False)
+    d.dims[0].attach_scale(events)
+
+
 big_endian_dictionary_array = dictionary_array_of(">f8")
 
 
@@ -3214,6 +3225,21 @@ CASES = {
                     "unknown_root_group": True},
         "A root attribute and a root group no version 0 reader knows, "
         "both of which must be ignored and reported.",
+        warnings=["W11"], support_ids={"s0": MESH_SID}),
+    "warn_w11_contents": mk(
+        then(mesh_base, unknown_group_with_contents), {},
+        "A root group this version does not know, holding an unlimited "
+        "dimension that is not row. The group is W11 and is otherwise "
+        "left alone (section 14), so what it holds is not E43.",
+        warnings=["W11"], support_ids={"s0": MESH_SID}),
+    "warn_w11_support_contents": mk(
+        then(mesh_base, lambda f: f["supports/s0"].create_group("extras")
+             .create_dataset("quality", data=np.arange(6.0),
+                             track_times=False)
+             .dims[0].attach_scale(f["supports/s0/node"])), {},
+        "A group this version does not know inside a support, holding a "
+        "dataset on the support's node dimension. It is W11, nothing in "
+        "it is checked, and a rewrite carries it whole.",
         warnings=["W11"], support_ids={"s0": MESH_SID}),
     "warn_w12": mk(
         mesh_base, {"pressure_chunks": (1, 6, 1)},

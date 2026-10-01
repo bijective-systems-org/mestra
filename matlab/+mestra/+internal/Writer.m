@@ -350,6 +350,15 @@ classdef Writer
                 end
                 H5G.close(cg);
             end
+            % Groups inside the support this version does not know, put
+            % back as they were read (section 28).
+            extras = [];
+            if isfield(s, 'extraGroups'), extras = s.extraGroups; end
+            for i = 1:numel(extras)
+                eg = mestra.internal.Writer.group(sid, extras(i).name);
+                mestra.internal.H5.replayTree(eg, extras(i).tree);
+                H5G.close(eg);
+            end
 
             for name = local.keys()
                 H5D.close(local(name{1}));

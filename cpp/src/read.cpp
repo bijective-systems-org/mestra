@@ -204,6 +204,10 @@ Dataset read_impl(const std::string& path, bool with_data) {
         if (m.name == "private") d.has_private = true;
       } else {
         d.unknown_root_groups.push_back(m.name);
+        if (with_data) {
+          d.unknown_root_copies[m.name] =
+              internal::capture_group(f, "/" + m.name);
+        }
       }
     }
   }
@@ -356,6 +360,10 @@ Dataset read_impl(const std::string& path, bool with_data) {
       if (!g.is_group) continue;
       if (!internal::known_support_group(g.name)) {
         s.unknown_groups.push_back(g.name);
+        if (with_data) {
+          s.unknown_group_copies[g.name] =
+              internal::capture_group(f, sp + "/" + g.name);
+        }
       }
     }
 

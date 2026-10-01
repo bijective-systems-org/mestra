@@ -418,6 +418,16 @@ class Writer {
                    support_rows);
       }
     }
+    // Groups this version does not know, put back as they came
+    // (section 28), as at the root.
+    for (const std::string& name : s.unknown_groups) {
+      const auto copy = s.unknown_group_copies.find(name);
+      if (copy != s.unknown_group_copies.end() && !copy->second.empty()) {
+        internal::restore_group(f_, sp + "/" + name, copy->second);
+      } else {
+        f_.make_group(sp + "/" + name);
+      }
+    }
   }
 
   void write_slot(const std::string& p, const ArraySlot& a,
@@ -485,8 +495,17 @@ class Writer {
     } else if (d_.container_groups.count("/private") != 0) {
       f_.make_group("/private");
     }
+    // A group this version does not know goes back as it came: its
+    // name is reported (W11) and nothing in it is interpreted, and a
+    // rewrite that kept the name and dropped the contents would lose
+    // them in silence.
     for (const std::string& name : d_.unknown_root_groups) {
-      f_.make_group("/" + name);
+      const auto copy = d_.unknown_root_copies.find(name);
+      if (copy != d_.unknown_root_copies.end() && !copy->second.empty()) {
+        internal::restore_group(f_, "/" + name, copy->second);
+      } else {
+        f_.make_group("/" + name);
+      }
     }
   }
 

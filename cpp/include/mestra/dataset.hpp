@@ -132,6 +132,31 @@ struct ArraySlot {
   std::string callable_id() const;
 };
 
+// A group carried from one file to another without being looked
+// into.  Sections 12 and 29 forbid a reader to interpret `/private`;
+// they do not forbid it to copy it, and a producer that round-trips a
+// file through this library keeps its own records.
+//
+// `image` is the bytes of an HDF5 file holding a copy of the group and
+// nothing else, made by the library's own object copy, so every dtype,
+// shape, chunk, filter, attribute and subgroup comes back as it was
+// without this code having decided what any of it means.  The one
+// thing that copy does not carry is a dimension scale attachment,
+// which is a pair of attributes holding object references: those are
+// recorded here by path and remade on the way out.
+struct OpaqueGroup {
+  struct Attachment {
+    std::string dataset;     // absolute path in the source file
+    std::size_t axis = 0;
+    std::string scale;       // absolute path; may be outside the group
+  };
+
+  std::vector<char> image;
+  std::vector<Attachment> attachments;
+
+  bool empty() const { return image.empty(); }
+};
+
 // The structure a field lives on.  `kind` is mesh, axis or none.
 // The cell arrays are present only for a mesh (section 20).
 struct Support {
@@ -148,6 +173,10 @@ struct Support {
   std::vector<ArraySlot> cell_arrays;
   AttrMap extra;
   std::vector<std::string> unknown_groups;   // ignored and reported
+  // An opaque copy of each of those groups, by name, so that a rewrite
+  // puts back what it holds as well as its name (section 28: ignored
+  // and reported, not dropped).  Filled by a whole read.
+  std::map<std::string, OpaqueGroup> unknown_group_copies;
 
   // The digest of section 24, computed from the arrays above rather
   // than read from `support_id`.
@@ -175,31 +204,6 @@ struct CategoryTable {
   std::optional<std::size_t> string_size;
 
   int index_of(const std::string& entry) const;   // -1 when absent
-};
-
-// A group carried from one file to another without being looked
-// into.  Sections 12 and 29 forbid a reader to interpret `/private`;
-// they do not forbid it to copy it, and a producer that round-trips a
-// file through this library keeps its own records.
-//
-// `image` is the bytes of an HDF5 file holding a copy of the group and
-// nothing else, made by the library's own object copy, so every dtype,
-// shape, chunk, filter, attribute and subgroup comes back as it was
-// without this code having decided what any of it means.  The one
-// thing that copy does not carry is a dimension scale attachment,
-// which is a pair of attributes holding object references: those are
-// recorded here by path and remade on the way out.
-struct OpaqueGroup {
-  struct Attachment {
-    std::string dataset;     // absolute path in the source file
-    std::size_t axis = 0;
-    std::string scale;       // absolute path; may be outside the group
-  };
-
-  std::vector<char> image;
-  std::vector<Attachment> attachments;
-
-  bool empty() const { return image.empty(); }
 };
 
 // A callable as the file stores it: a public `type`, an optional
@@ -247,6 +251,9 @@ struct Dataset {
   AttrMap root_extra;            // root attributes this version does
                                  // not know (W11)
   std::vector<std::string> unknown_root_groups;
+  // An opaque copy of each of those groups, by name, as for a
+  // support's unknown groups.  Filled by a whole read.
+  std::map<std::string, OpaqueGroup> unknown_root_copies;
   // What a read left out.  After a non-strict read, the structural
   // findings a strict read would have thrown for.  After any read, an
   // entry of a callable's dictionary section 25 cannot represent
