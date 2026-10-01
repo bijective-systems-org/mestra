@@ -534,6 +534,17 @@ classdef PackageTest < matlab.unittest.TestCase
                                      'mestra:E40', name{1});
             end
         end
+
+        function anUnusedGroupCategoryIsReportedAtItsKey(testCase)
+        %anUnusedGroupCategoryIsReportedAtItsKey  W07 is a group key
+        %   whose category table has an entry no row uses, so the
+        %   finding's path is the key's, which is where the other three
+        %   implementations put it.  A table may serve several keys.
+            r = mestra.validate(fullfile(corpusRoot(), 'warn_w07', ...
+                                         'case.mes'));
+            found = r.findings(strcmp({r.findings.id}, 'W07'));
+            testCase.verifyEqual({found.path}, {'/keys/member'});
+        end
     end
 
     methods (Static)

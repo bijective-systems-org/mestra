@@ -694,7 +694,9 @@ function checkUnusedCategories(ctx)
         used = unique(double(k.values));
         for c = 0:numel(table) - 1
             if ~any(used == c)
-                ctx.rep.add('W07', ['/categories/' k.category], ...
+                % W07 is about the group key, so it is reported at the
+                % key, as the other three implementations report it.
+                ctx.rep.add('W07', ['/keys/' k.name], ...
                     'entry %d ("%s") is used by no row', c, table{c + 1});
             end
         end
