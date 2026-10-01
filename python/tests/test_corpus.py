@@ -19,15 +19,15 @@ VALID = corpus.valid_case_names()
 
 
 def test_the_corpus_is_where_it_should_be():
-    """90 cases: the band added five, of which `band_stored`,
+    """91 cases: the band added five, of which `band_stored`,
     `affine_band` and `warn_w16` are files a reader accepts and
     `err_e12_band` and `err_e12_callable` are not; served coordinates
     added `callable_coordinates`. `wide_keys` is generated on demand,
     as vectors/README.md says: `python vectors/generate.py
     --on-demand`."""
-    assert len(CASES) == 90
-    assert len(VALID) == 37
-    assert len(WITH_CODEC) == 8
+    assert len(CASES) == 91
+    assert len(VALID) == 38
+    assert len(WITH_CODEC) == 9
 
 
 @pytest.mark.parametrize("name", CASES)

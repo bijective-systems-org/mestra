@@ -868,7 +868,8 @@ classdef Reader
             if nargin < 3, d = []; end
             if nargin < 4, eager = true; end
             gid = mestra.internal.H5.openGroup(g, id);
-            mestra.internal.Reader.checkAttrs(d, gid, ['/callables/' id]);
+            mestra.internal.Reader.checkAttrs(d, gid, ['/callables/' id], ...
+                                              {'type', 'repr'});
             rec = mestra.Dataset.emptyCallable();
             rec(1).id = id;
             rec(1).type = mestra.internal.Reader.str(gid, 'type');
@@ -924,7 +925,7 @@ classdef Reader
             end
         end
 
-        function checkAttrs(d, oid, path)
+        function checkAttrs(d, oid, path, only)
         %checkAttrs  E19 and E26 over one object's attributes.
         %   The rules are section 18's and live in
         %   mestra.internal.Attrs, so that the reader and the
@@ -936,7 +937,11 @@ classdef Reader
         %   the file is still accepted, so the reader passes over it
         %   without refusing the file.
             if isempty(d), return, end
-            found = mestra.internal.Attrs.findings(oid);
+            if nargin > 3
+                found = mestra.internal.Attrs.findings(oid, only);
+            else
+                found = mestra.internal.Attrs.findings(oid);
+            end
             for i = 1:numel(found)
                 if strcmp(found(i).id, 'W11'), continue, end
                 mestra.internal.Reader.note(d, path, found(i).id, ...

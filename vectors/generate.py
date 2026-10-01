@@ -836,6 +836,24 @@ def case_affine_zero_rows(f):
             AFFINE_AT)])
 
 
+def case_dictionary_null(f):
+    """The null sentinel of section 18, at the top of a dictionary and
+    one level down. No other case carries it."""
+    affine_base(f, {"type": "example"})
+    m1 = f["callables/m1"]
+    rattr(m1, "fallback", b"\0null")
+    rattr(m1["outputs"], "retired", b"\0null")
+    d = affine_dict()
+    d["fallback"] = None
+    d["outputs"]["retired"] = None
+    return expect(
+        "A dictionary holding the null sentinel at its top level and "
+        "inside a nested dictionary. Both are values, not strings with a "
+        "NUL in them, and both survive a rewrite.",
+        support_ids={"s0": MESH_SID},
+        codec={"m1": tagged(d)})
+
+
 # ------------------------------------------------- the five mappings
 
 def pressures(n):
@@ -2353,6 +2371,7 @@ CASES = {
     # the two files of docs/example.md
     "mesh_two_rows": case_mesh_two_rows,
     "affine_zero_rows": case_affine_zero_rows,
+    "dictionary_null": case_dictionary_null,
     # the five mappings
     "family_static": case_family_static,
     "cascade_varying_geometry": case_cascade_varying_geometry,

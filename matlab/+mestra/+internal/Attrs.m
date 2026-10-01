@@ -35,8 +35,12 @@ classdef Attrs
                  'float64', 'float64', 'string'});
         end
 
-        function found = findings(oid)
+        function found = findings(oid, only)
         %findings  Every section 18 fault on one object's attributes.
+        %   With ONLY, a cell array of names, just those attributes are
+        %   looked at: on a callable's group every other attribute is
+        %   an entry of its dictionary, which section 25 encodes and the
+        %   codec checks, and the null sentinel there is legal.
         %   A 1-by-n struct array with fields `id`, `attr` and
         %   `message`, in the order the attributes come back in.  W11
         %   is included, because an attribute this version does not
@@ -45,7 +49,11 @@ classdef Attrs
             H5 = mestra.internal.H5;
             found = mestra.internal.Attrs.none();
             kinds = mestra.internal.Attrs.kinds();
-            for name = H5.publicAttrNames(oid)
+            names = H5.publicAttrNames(oid);
+            if nargin > 1
+                names = names(ismember(names, only));
+            end
+            for name = names
                 try
                     % One open of the attribute answers both what it
                     % is and what it holds.  Every finding below needs
