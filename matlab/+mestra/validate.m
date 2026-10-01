@@ -1174,6 +1174,14 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
     checkSource(ctx, oid, path, isGroup);
     checkStatistic(ctx, oid, path);
 
+    % ---- E04: section 5 names three values of varies, for a slot a
+    % callable serves as much as for one that holds data
+    if ~isempty(varies) && ~any(strcmp(varies, {'none', 'row'})) && ...
+            ~strncmp(varies, 'group:', 6)
+        rep.add('E04', path, 'varies is "%s", not none, row or group:<k>', ...
+                varies);
+    end
+
     if isGroup
         H5G.close(oid);
         return

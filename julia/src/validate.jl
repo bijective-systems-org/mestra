@@ -1291,6 +1291,11 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
         check_statistic!(v, spath, a)
         haskey(a, "varies") || (report!(v, "E39", spath,
             "`varies` is missing"); v.missing_public = true)
+        # Section 5 names three values, for a slot a callable serves as
+        # much as for one that holds data.
+        vs = sattr(a, "varies")
+        vs === nothing || vs in ("none", "row") || startswith(vs, "group:") ||
+            report!(v, "E04", spath, "`varies` is not none, row or group:<k>")
         # Section 14: a slot without `components` is E31, which E39
         # names as the rule that covers it.
         haskey(a, "components") || (report!(v, "E31", spath,

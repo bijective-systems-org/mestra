@@ -691,7 +691,7 @@ def affine_base(f, o):
     node_arrays = sup.create_group("node_arrays")
     p = node_arrays.create_group("pressure")
     sattr(p, "role", "field")
-    sattr(p, "varies", "row")
+    sattr(p, "varies", g("pressure_varies", "row"))
     sattr(p, "units", "Pa")
     iattr(p, "components", 1)
     sattr(p, "source", g("pressure_source", "callable:m1"))
@@ -2671,6 +2671,12 @@ CASES = {
         "A field whose varies is none of the three words section 5 "
         "names. Its shape has as many axes as a row-varying one, so only "
         "the word itself is wrong.",
+        errors=["E04"], support_ids={"s0": MESH_SID}),
+    "err_e04_served_varies": mk(
+        affine_base, {"pressure_varies": "sideways"},
+        "A slot a callable serves whose varies is none of the three words "
+        "section 5 names. It holds no data, so only the word can be "
+        "checked, and it is wrong.",
         errors=["E04"], support_ids={"s0": MESH_SID}),
     "err_e05": mk(
         mesh_base, {"pressure": PRESSURE_2[:, :5, :]},
