@@ -201,6 +201,16 @@ class Validator {
     r_->warnings.push_back({id, where, message});
   }
 
+  // E40 for every member of a public group whose members this pass
+  // does not otherwise visit: /notes, which holds attributes, and a
+  // slot served by a callable, which is a group holding none.  A link
+  // there is in the public tree as much as one under /keys is.
+  void links_in(const std::string& group) {
+    for (const Member& m : f_.members(group)) {
+      if (m.kind != internal::LinkKind::Hard) usable(group, m);
+    }
+  }
+
   // W10: a units string the parser cannot read.  A `units` that is not
   // a string at all is E19, drawn by check_attribute_encodings, and is
   // not also a string that does not parse.
@@ -790,6 +800,7 @@ void Validator::root() {
   // at all, which section 29 requires.
   if (f_.is_group("/notes")) {
     check_attribute_encodings("/notes", f_.attributes("/notes"));
+    links_in("/notes");
   }
 
   if (f_.is_dataset("/row")) {
@@ -1191,6 +1202,7 @@ void Validator::scalars() {
     if (!usable("/scalars", m)) continue;
     const std::string p = "/scalars/" + m.name;
     guarded(p, [&] {
+    if (m.is_group) links_in(p);
     const std::vector<RawAttr> attrs = f_.attributes(p);
     check_attribute_encodings(p, attrs);
     if (!internal::legal_netcdf_name(m.name)) {
@@ -1551,6 +1563,7 @@ void Validator::supports() {
     }
     if (has_coordinates) {
       const std::string cp = sp + "/coordinates";
+      if (f_.is_group(cp)) guarded(cp, [&] { links_in(cp); });
       guarded(cp, [&] { slot(cp, kind, n_nodes, n_cells, index, true); });
     }
     for (int which = 0; which < 2; ++which) {
@@ -1559,6 +1572,7 @@ void Validator::supports() {
       for (const Member& a : f_.members(gp)) {
         if (!usable(gp, a)) continue;
         const std::string ap = gp + "/" + a.name;
+        if (a.is_group) guarded(ap, [&] { links_in(ap); });
         guarded(ap, [&] { slot(ap, kind, n_nodes, n_cells, index, false); });
       }
     }

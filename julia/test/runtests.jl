@@ -1082,6 +1082,19 @@ end
     @test vec(Mestra.raw_data(ds.scalars["cl"])) == [0.25, 0.55]
 end
 
+@testset "a link anywhere in the public tree is E40 (sections 14 and 29)" begin
+    # The validator met links only where it walked members for its own
+    # reasons, which left out /notes and the group a callable slot is,
+    # and a strict read then read those files without a word.
+    for name in ("err_e40_notes", "err_e40_slot_group", "err_e40_support",
+                 "err_e40_root", "err_e40_dictionary")
+        path = case_file(name)
+        @test Mestra.validate(path).errors == ["E40"]
+        e = refusal(() -> Mestra.read(path))
+        @test e !== nothing && e.rule == "E40"
+    end
+end
+
 @testset "a conforming file carrying /private is accepted (sections 12, 14, 29)" begin
     # Section 14, of the byte-level rules of sections 18 to 25: "They
     # are checked on the public objects only.  `/private` is not

@@ -234,7 +234,8 @@ classdef Reader
                     found{end + 1} = record; %#ok<AGROW>
                     for i = 1:numel(limits)
                         mestra.internal.Reader.note(d, ...
-                            ['/callables/' name{1}], 'E41', limits{i});
+                            ['/callables/' name{1}], limits{i}{1}, ...
+                            limits{i}{2});
                     end
                 end
                 d.callables = mestra.internal.Reader.join(d.callables, found);
@@ -247,8 +248,25 @@ classdef Reader
                 end
                 g = H5.openGroup(fid, which{1});
                 tree = H5.captureTree(g, scales);
+                links = {};
+                if strcmp(which{1}, 'notes')
+                    % /notes is public, so a link among its members is
+                    % E40 (section 14), and the walk's own note of it
+                    % is not a second finding.
+                    mestra.internal.Reader.noteLinks(d, g, '/notes');
+                    for name = H5.children(g)
+                        if any(strcmp(H5.childType(g, name{1}), ...
+                                      {'soft', 'external'}))
+                            links{end + 1} = ['"' name{1} '" is a ']; %#ok<AGROW>
+                        end
+                    end
+                end
                 H5G.close(g);
                 for i = 1:numel(tree.stopped)
+                    if any(cellfun(@(l) startsWith(tree.stopped{i}, l), ...
+                                   links))
+                        continue
+                    end
                     mestra.internal.Reader.note(d, ['/' which{1}], ...
                         'E41', tree.stopped{i});
                 end
@@ -632,6 +650,7 @@ classdef Reader
             if strcmp(H5.childType(g, name), 'group')
                 oid = H5G.open(g, name);
                 R = @mestra.internal.Reader;
+                R().noteLinks(d, oid, path);
                 R().checkAttrs(d, oid, path);
                 rec(1).units = R().str(oid, 'units');
                 rec(1).source = R().str(oid, 'source');
@@ -685,6 +704,7 @@ classdef Reader
             rec = mestra.Dataset.emptySupport();
             rec(1).name = name;
             path = ['/supports/' name];
+            mestra.internal.Reader.noteLinks(d, sid, path);
             mestra.internal.Reader.checkAttrs(d, sid, path);
             rec(1).kind = mestra.internal.Reader.str(sid, 'kind');
             rec(1).nNodes = mestra.internal.Reader.num(sid, 'n_nodes');
@@ -767,6 +787,7 @@ classdef Reader
             isGroup = strcmp(H5.childType(g, name), 'group');
             if isGroup
                 oid = H5G.open(g, name);
+                R().noteLinks(d, oid, path);
             else
                 oid = H5D.open(g, name);
             end
@@ -857,7 +878,10 @@ classdef Reader
             limits = {};
             for i = 1:numel(problems)
                 if numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'U03 ')
-                    limits{end + 1} = problems{i}(5:end); %#ok<AGROW>
+                    limits{end + 1} = {'E41', problems{i}(5:end)}; %#ok<AGROW>
+                elseif numel(problems{i}) > 4 && ...
+                        strcmp(problems{i}(1:4), 'E40 ')
+                    limits{end + 1} = {'E40', problems{i}(5:end)}; %#ok<AGROW>
                 end
             end
             if ~eager
@@ -941,6 +965,21 @@ classdef Reader
                     ['source names a callable and the slot is a ' ...
                      'dataset; a slot served by a callable is a group ' ...
                      'with no data']);
+            end
+        end
+
+        function noteLinks(d, gid, path)
+        %noteLinks  E40 for each member of a public group that is a
+        %   soft or an external link.  Used where the reader does not
+        %   otherwise walk the members: a support group's own, a slot
+        %   a callable serves, and /notes.  None is followed.
+            if isempty(d), return, end
+            for name = mestra.internal.H5.children(gid)
+                kind = mestra.internal.H5.childType(gid, name{1});
+                if any(strcmp(kind, {'soft', 'external'}))
+                    mestra.internal.Reader.note(d, [path '/' name{1}], ...
+                        'E40', sprintf('a %s link, not followed', kind));
+                end
             end
         end
 

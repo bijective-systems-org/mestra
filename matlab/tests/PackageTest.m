@@ -517,6 +517,23 @@ classdef PackageTest < matlab.unittest.TestCase
                 testCase.verifyError(@() mestra.read(path), 'mestra:E19');
             end
         end
+
+        function aLinkAnywherePublicIsE40(testCase)
+        %aLinkAnywherePublicIsE40  E40 is a link that is not a hard
+        %   link anywhere in the public tree.  The validator called a
+        %   link at the root or in a support group W11, a link inside a
+        %   dictionary E41, and did not look inside /notes or a slot a
+        %   callable serves; a strict read then read three of the five.
+            for name = {'err_e40_notes', 'err_e40_slot_group', ...
+                        'err_e40_support', 'err_e40_root', ...
+                        'err_e40_dictionary'}
+                path = fullfile(corpusRoot(), name{1}, 'case.mes');
+                r = mestra.validate(path);
+                testCase.verifyEqual(r.errors, {'E40'}, name{1});
+                testCase.verifyError(@() mestra.read(path), ...
+                                     'mestra:E40', name{1});
+            end
+        end
     end
 
     methods (Static)

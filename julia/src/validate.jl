@@ -901,6 +901,9 @@ function check_scalars!(v::Validator)
         obj = vopen!(v, g, name, "/scalars/$(name)")
         obj === nothing && continue
         path = "/scalars/$(name)"
+        # A slot a callable serves is a group, and a link inside it is
+        # in the public tree like any other (E40).
+        obj isa HDF5.Group && vchildren!(v, obj, path)
         guard!(v, path) do
         a = own_attrs(obj)
         check_attr_types!(v, path, a)
@@ -1243,6 +1246,9 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
             obj === nothing && continue
             push!(slots, ("$(path)/$(sub)/$(n)", loc, obj))
         end
+    end
+    for (spath, _, obj) in slots
+        obj isa HDF5.Group && vchildren!(v, obj, spath)
     end
     nweight = Dict(:node => 0, :cell => 0)
     nnormal = Dict(:node => 0, :cell => 0)
@@ -1754,6 +1760,10 @@ end
 # ------------------------------------------------- unknown, private
 
 function check_unknown!(v::Validator)
+    # /notes holds attributes, so nothing else walks its members; a
+    # link among them is still a link in the public tree (E40).
+    notes = vroot(v, "notes")
+    notes === nothing || vchildren!(v, notes, "/notes")
     a = own_attrs(v.f)
     for name in keys(a)
         name in ROOT_ATTRS || report!(v, "W11", "/",

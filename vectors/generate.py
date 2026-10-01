@@ -2323,6 +2323,15 @@ def strings_not_utf8_nulpad(f):
                    h5py.h5t.STR_NULLPAD)
 
 
+def soft_link_in(where):
+    """A soft link, which a reader never follows (E40), placed in a
+    public group that holds no other link this base would check."""
+    def change(f):
+        g = f[where] if where in f else f.create_group(where)
+        g["ghost"] = h5py.SoftLink("/nothing")
+    return change
+
+
 def big_endian_dictionary_array(f):
     """A dictionary dataset stored big-endian, which section 25 does
     not allow: a numeric array there is little-endian."""
@@ -2672,6 +2681,29 @@ CASES = {
         "An axis support carrying a cell_types dataset and a cell "
         "dimension.",
         errors=["E38"], support_ids={"s0": E_AXIS_SID}),
+    "err_e40_dictionary": mk(
+        then(affine_base, soft_link_in("callables/m1/outputs")), {},
+        "A soft link inside a callable's dictionary. The dictionary is "
+        "public, and a reader follows no link that is not hard.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e40_notes": mk(
+        then(mesh_base, soft_link_in("notes")), {},
+        "A soft link inside /notes, which is public and otherwise holds "
+        "only attributes.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e40_root": mk(
+        then(mesh_base, soft_link_in("/")), {},
+        "A soft link at the root of the file.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e40_slot_group": mk(
+        then(affine_base, soft_link_in("scalars/cl")), {},
+        "A soft link inside a slot a callable serves, which is a group "
+        "carrying the slot's attributes and nothing else.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e40_support": mk(
+        then(mesh_base, soft_link_in("supports/s0")), {},
+        "A soft link inside a support group, beside its cell arrays.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
     "err_e42": mk(
         mesh_base, {"plain_scales": ("component_1",)},
         "A dimension scale created with the library's default "

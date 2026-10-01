@@ -121,6 +121,14 @@ classdef Codec
                 key = name{1};
                 if mestra.internal.Text.reserved(key), continue, end
                 kind = H5.childType(gid, key);
+                if any(strcmp(kind, {'soft', 'external'}))
+                    % E40: a link in the public tree that is not a
+                    % hard link, and a dictionary is public.
+                    problems{end + 1} = sprintf( ...
+                        'E40 %s: a %s link, which this reader does not follow', ...
+                        key, kind); %#ok<AGROW>
+                    continue
+                end
                 if ~any(strcmp(kind, {'group', 'dataset'}))
                     problems{end + 1} = sprintf( ...
                         'U03 %s: a %s, which this reader does not follow', ...

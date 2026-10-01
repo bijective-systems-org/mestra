@@ -129,6 +129,16 @@ function tf = followable(ctx, gid, name, path)
     end
 end
 
+function linksIn(ctx, gid, path)
+%linksIn  E40 for every member of a public group whose members are not
+%   otherwise visited: /notes, which holds attributes, and a slot a
+%   callable serves, which is a group holding nothing.  A link there
+%   is in the public tree as much as one under /keys.
+    for name = mestra.internal.H5.children(gid)
+        followable(ctx, gid, name{1}, [path '/' name{1}]);
+    end
+end
+
 % ===================================================== the vocabulary
 
 function names = keyRoles()
@@ -720,6 +730,9 @@ function checkOneScalar(ctx, g, name, path)
             'a scalar is a dataset or a group, and this is neither, so there is nothing here to read');
         return
     end
+    if isGroup
+        linksIn(ctx, oid, path);
+    end
     checkAttrEncodings(ctx, oid, path);
     checkKnownAttrs(ctx, oid, path, ...
         {'units', 'source', 'output', 'statistic', 'of', 'quantile', ...
@@ -961,6 +974,9 @@ function checkOneSupport(ctx, parent, name, index)
                         'node', 'cell', 'cell_plus_one', 'index', 'row'}];
     checked = [cellNames {'coordinates', 'node_arrays', 'cell_arrays'}];
     for nm = H5.children(sid)
+        if ~followable(ctx, sid, nm{1}, [path '/' nm{1}])
+            continue
+        end
         if ~ismember(nm{1}, known)
             rep.add('W11', [path '/' nm{1}], ...
                 'this reader does not know this object; it is ignored');
@@ -1093,6 +1109,9 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
         rep.add('E41', path, ...
             'a slot is a dataset or a group, and this is neither, so there is nothing here to read');
         return
+    end
+    if isGroup
+        linksIn(ctx, oid, path);
     end
     checkAttrEncodings(ctx, oid, path);
     checkKnownAttrs(ctx, oid, path, ...
@@ -1310,6 +1329,8 @@ function checkOneCallable(ctx, g, name, path)
     for i = 1:numel(problems)
         if numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'U03 ')
             ctx.rep.add('E41', path, '%s', problems{i}(5:end));
+        elseif numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'E40 ')
+            ctx.rep.add('E40', path, '%s', problems{i}(5:end));
         else
             ctx.rep.add('E32', path, '%s', problems{i});
         end
@@ -1648,6 +1669,11 @@ end
 function checkUnknown(ctx)
 %checkUnknown  W11 for a root attribute or group this version ignores.
     H5 = mestra.internal.H5;
+    if strcmp(H5.childType(ctx.root, 'notes'), 'group')
+        notes = H5G.open(ctx.root, 'notes');
+        linksIn(ctx, notes, '/notes');
+        H5G.close(notes);
+    end
     known = mestra.internal.Reader.ROOT_ATTRS;
     for name = H5.publicAttrNames(ctx.root)
         if ~ismember(name{1}, known)
@@ -1657,6 +1683,9 @@ function checkUnknown(ctx)
         end
     end
     for name = H5.children(ctx.root)
+        if ~followable(ctx, ctx.root, name{1}, ['/' name{1}])
+            continue
+        end
         if ~mestra.internal.Reader.knownRootChild(ctx.root, name{1})
             ctx.rep.add('W11', ['/' name{1}], ...
                 'this reader does not know this object; it is ignored');

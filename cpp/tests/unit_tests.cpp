@@ -1557,6 +1557,34 @@ void append_rows_grows_a_file() {
   std::remove(grown.c_str());
 }
 
+// E40 is a link anywhere in the public tree.  The validator once
+// looked only where it enumerated members for its own reasons, which
+// left out /notes and the group a callable slot is; a strict read
+// then read such a file without a word.
+void links_anywhere_public() {
+  for (const char* name : {"err_e40_notes", "err_e40_slot_group",
+                           "err_e40_support", "err_e40_root",
+                           "err_e40_dictionary"}) {
+    const std::string path =
+        std::string("../../vectors/cases/") + name + "/case.mes";
+    if (!std::ifstream(path).good()) {
+      std::cout << "     (" << name << " is not beside the build; skipped)\n";
+      continue;
+    }
+    const mestra::Report r = mestra::validate(path);
+    check::equal(std::string(name) + ": the validator's errors",
+                 r.errors.size() == 1 ? r.errors[0].id : std::string("?"),
+                 "E40");
+    std::string rule;
+    try {
+      mestra::read(path);
+    } catch (const mestra::Error& e) {
+      rule = e.rule();
+    }
+    check::equal(std::string(name) + ": a strict read refuses", rule, "E40");
+  }
+}
+
 int main() {
   sha256_vectors();
   support_id_vectors();
@@ -1576,5 +1604,6 @@ int main() {
   hardened_value_types();
   bytes_order();
   append_rows_grows_a_file();
+  links_anywhere_public();
   return check::finish("mestra unit tests");
 }
