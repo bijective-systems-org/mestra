@@ -190,12 +190,14 @@ def test_a_metadata_open_reads_only_category_tables(name, monkeypatch):
     dimension-scale structure, and may read a category table in
     full ... An open never reads a slot's data and never reads a
     dataset inside a callable's dictionary; those wait for the
-    read."
+    read." And "/row_support is the one other dataset an open
+    reads", because E16 in an unaligned file is decided from it.
     """
     path = corpus.case_path(name)
     read = _paths_read_during(
         lambda: mestra.read(path).close(), monkeypatch)
-    wrong = [p for p in read if not p.startswith("/categories/")]
+    wrong = [p for p in read
+             if not p.startswith("/categories/") and p != "/row_support"]
     assert wrong == [], "%s: the open read %s" % (name, sorted(set(wrong)))
 
 

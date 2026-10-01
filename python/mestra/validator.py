@@ -286,11 +286,15 @@ class _FileValidator:
         that a pass that may not read a dataset has one place to say
         so.
         """
-        if self.tables_only and not where.startswith("/categories/"):
+        if self.tables_only and not (where.startswith("/categories/")
+                                     or where == "/row_support"):
             # A metadata open. The rule that wanted these values is
             # left unchecked, which is not a finding: the nine
             # structural rules of section 2 of the conventions do not
-            # need them, and everything else waits for the read.
+            # need them, and everything else waits for the read. A
+            # category table and /row_support are read in full, as
+            # section 7 of the conventions says: E16 in an unaligned
+            # file is decided from /row_support and nothing else.
             return None
         try:
             return np.asarray(h5safe.read_values(dset, where,
@@ -1677,11 +1681,10 @@ class _FileValidator:
         row-varying array on a support in an unaligned file, where it
         is the number of rows referencing that support". Section 21
         puts that same number in the file as the length of the
-        support's own `row` scale, so a pass that did not read
-        `/row_support` -- a metadata open, by section 7 of the
-        conventions -- takes it from there. The two agree in a
-        conforming file; where they do not, only a pass that read the
-        column can say so, and that is `validate`.
+        support's own `row` scale, so a pass that could not read
+        `/row_support` takes it from there. A metadata open reads the
+        column (section 7 of the conventions), so the open and the
+        read decide this the same way.
         """
         rows = self.rows_on.get(support_name)
         if rows is not None:

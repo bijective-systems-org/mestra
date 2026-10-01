@@ -558,6 +558,20 @@ classdef PackageTest < matlab.unittest.TestCase
             testCase.verifyTrue(startsWith(lines{1}, ...
                 'E33 /keys/mach\x0a: '), lines{1});
         end
+
+        function aRowCountAgainstRowSupportIsE16(testCase)
+        %aRowCountAgainstRowSupportIsE16  E16 covers /row_support's
+        %   own length, and in an unaligned file a row-varying slot's
+        %   length against the rows /row_support puts on its support.
+        %   Neither was checked, and the read returned both files.
+            for name = {'err_e16_row_support', 'err_e16_support_rows'}
+                path = fullfile(corpusRoot(), name{1}, 'case.mes');
+                r = mestra.validate(path);
+                testCase.verifyTrue(ismember('E16', r.errors), name{1});
+                testCase.verifyError(@() mestra.read(path), 'mestra:E16', ...
+                                     name{1});
+            end
+        end
     end
 
     methods (Static)

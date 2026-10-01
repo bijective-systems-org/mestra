@@ -1034,9 +1034,21 @@ function check_row_support!(v::Validator)
         (ti.class === :int && ti.signed && ti.size == 4 && ti.little) ||
             report!(v, "E20", "/row_support",
                     "/row_support must be little-endian int32")
-        v.structural ||
-            (v.row_support = Int.(vec(safe_read(d;
-                                      max_elements = v.max_elements))))
+        # E16 covers /row_support as it covers a key column: one value
+        # per row of the file, in one dimension.
+        cdims, _ = disk_shape(d)
+        if length(cdims) != 1
+            report!(v, "E16", "/row_support",
+                    "/row_support has one dimension, `row`, and this has " *
+                    "$(length(cdims))")
+        elseif cdims[1] != v.nrows
+            report!(v, "E16", "/row_support",
+                    "$(cdims[1]) values in a file of $(v.nrows) rows")
+        end
+        # Read in full even by a structural pass, as a metadata open
+        # reads it (conventions section 7): E16 in an unaligned file is
+        # decided from these values and from nothing else.
+        v.row_support = Int.(vec(safe_read(d; max_elements = v.max_elements)))
     end
     n = length(v.supports)
     for x in v.row_support
@@ -1406,11 +1418,9 @@ function check_array_shape!(v::Validator, spath, d, a, role, loc, sname,
             "$(cdims[axis]) $(loc)s where the support declares $(want)")
     end
     # In an unaligned file the count is how many rows reference this
-    # support, which only the values of /row_support say (section 22).
-    # A structural pass does not read them, so it leaves that half of
-    # E16 to the full pass and decides the aligned half, which is the
-    # row count in an attribute.
-    if lead == "row" && (v.aligned || !v.structural)
+    # support, which only the values of /row_support say (section 22);
+    # every pass reads them, so the open and the read decide it alike.
+    if lead == "row"
         want = v.aligned ? v.nrows : rows_on_support(v, sindex)
         cdims[1] == want || report!(v, "E16", spath,
             "a leading dimension of $(cdims[1]) where $(want) rows " *

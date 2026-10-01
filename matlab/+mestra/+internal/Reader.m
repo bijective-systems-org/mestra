@@ -199,6 +199,8 @@ classdef Reader
             if mestra.internal.Reader.hasKind(fid, 'row_support', 'dataset')
                 did = H5D.open(fid, 'row_support');
                 info = H5.dsetInfo(did);
+                mestra.internal.Reader.inspect(did, info, d, ...
+                                               '/row_support', scales);
                 d.rowSupport = int32(H5.readData(did, info));
                 d.rowSupport = reshape(d.rowSupport, 1, []);
                 H5D.close(did);
@@ -218,6 +220,7 @@ classdef Reader
                 end
                 d.supports = mestra.internal.Reader.join(d.supports, found);
                 H5G.close(g);
+                mestra.internal.Reader.checkRowsPerSupport(d);
             end
 
             if mestra.internal.Reader.hasGroup(fid, 'callables')
@@ -1011,6 +1014,39 @@ classdef Reader
                     ['source names a callable and the slot is a ' ...
                      'dataset; a slot served by a callable is a group ' ...
                      'with no data']);
+            end
+        end
+
+        function checkRowsPerSupport(d)
+        %checkRowsPerSupport  E16 in an unaligned file: a row-varying
+        %   slot on a support has one entry per row that references it
+        %   (section 22), which only /row_support says.  A metadata
+        %   open reads that column for this (conventions section 7),
+        %   so the open and the read refuse the same file.
+            if numel(d.supports) < 2 || isempty(d.rowSupport), return, end
+            order = mestra.internal.H5.sortByBytes({d.supports.name});
+            for i = 1:numel(d.supports)
+                s = d.supports(i);
+                want = sum(double(d.rowSupport) == ...
+                           find(strcmp(order, s.name), 1) - 1);
+                slots = [s.nodeArrays s.cellArrays];
+                if ~isempty(s.coordinates), slots = [slots s.coordinates]; end
+                for j = 1:numel(slots)
+                    a = slots(j);
+                    if ~strcmp(a.varies, 'row') || ~strcmp(a.source, 'data') || ...
+                            isempty(a.shape) || a.shape(1) == want
+                        continue
+                    end
+                    if strcmp(a.name, 'coordinates')
+                        where = ['/supports/' s.name '/coordinates'];
+                    else
+                        where = ['/supports/' s.name '/' a.location ...
+                                 '_arrays/' a.name];
+                    end
+                    mestra.internal.Reader.note(d, where, 'E16', sprintf( ...
+                        ['%d entries where %d rows of this file are on ' ...
+                         'the support'], a.shape(1), want));
+                end
             end
         end
 

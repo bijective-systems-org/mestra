@@ -2752,6 +2752,21 @@ CASES = {
         mesh_base, {"cl_values": [0.25, 0.55, 0.75]},
         "A stored scalar of three elements in a file of two rows.",
         errors=["E16"], support_ids={"s0": MESH_SID}),
+    "err_e16_row_support": mk(
+        two_support_base, {"n_rows": 3, "row_support": [0, 1, 0, 1]},
+        "A /row_support of four values in a file of three rows.",
+        errors=["E16"], warnings=["W05"],
+        support_ids={"s0": MESH_SID, "s1": S1_SID}),
+    "err_e16_support_rows": mk(
+        lambda f, o: (case_two_supports_row_varying(f),
+                      f["row_support"].__setitem__(slice(None), [0, 1, 1])),
+        {},
+        "The row-varying file of two supports with its third row moved "
+        "from s0 to s1, so s0 holds two entries for the one row now on it "
+        "and s1 one for two. Its fields still line up with their "
+        "support-local row scales; it is /row_support that disagrees.",
+        errors=["E16"], warnings=["W05"],
+        support_ids={"s0": MESH_SID, "s1": S1_SID}),
     "err_e17": mk(
         mesh_base, {"writer": None},
         "The root writer attribute is missing.",

@@ -295,3 +295,15 @@ def test_a_big_endian_array_in_a_dictionary(tmp_path):
     report = mestra.validate(path)
     assert report.error_ids == ["E32"]
     assert [f.where for f in report.errors] == ["/callables/m2/weights"]
+
+
+@pytest.mark.parametrize("name", ["err_e16_row_support",
+                                  "err_e16_support_rows"])
+def test_a_row_count_disagreeing_with_row_support_refuses_a_read(name):
+    """E16 is structural, so a strict read refuses it. In an unaligned
+    file it is decided from /row_support, which a metadata open reads
+    in full (conventions section 7); the open used to leave it to the
+    full validator, and the read returned the file."""
+    with pytest.raises(mestra.MestraError) as caught:
+        mestra.read(corpus.case_path(name))
+    assert caught.value.rule == "E16"

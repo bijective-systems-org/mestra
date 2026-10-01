@@ -1878,8 +1878,22 @@ void Validator::slot(const std::string& path,
           "slot must have");
   }
 
+  // Section 23: the row count in the chunk default is the length of
+  // the row dimension the leading axis is attached to, not the number
+  // of rows /row_support puts on the support -- a dataset that
+  // disagrees with that is E16, and its chunk is still judged against
+  // the dimension.
+  std::size_t chunk_rows = want_rows;
+  if (row_leading && !info.scale_paths.empty() &&
+      info.scale_paths[0].size() == 1 &&
+      f_.is_dataset(info.scale_paths[0].front())) {
+    const DsetInfo scale = f_.dataset_info(info.scale_paths[0].front());
+    if (scale.shape.size() == 1) {
+      chunk_rows = static_cast<std::size_t>(scale.shape[0]);
+    }
+  }
   check_dataset_storage(path, info, row_leading,
-                        row_leading ? want_rows : kNoChunkCheck);
+                        row_leading ? chunk_rows : kNoChunkCheck);
 
   if ((role == "field" || role == "derived") && dtype_ok &&
       dtype == DType::Float64) {

@@ -1089,6 +1089,18 @@ end
     @test startswith(line, "E33 /keys/mach\\x0a: ")
 end
 
+@testset "a row count disagreeing with /row_support is E16 (section 22)" begin
+    # E16 covers /row_support's own length, and in an unaligned file a
+    # row-varying slot's length against the rows /row_support puts on
+    # its support.  A structural pass did not read the column, so the
+    # first went unreported and the read returned both files.
+    for name in ("err_e16_row_support", "err_e16_support_rows")
+        @test "E16" in Mestra.validate(case_file(name)).errors
+        e = refusal(() -> Mestra.read(case_file(name)))
+        @test e !== nothing && e.rule == "E16"
+    end
+end
+
 @testset "a link anywhere in the public tree is E40 (sections 14 and 29)" begin
     # The validator met links only where it walked members for its own
     # reasons, which left out /notes and the group a callable slot is,

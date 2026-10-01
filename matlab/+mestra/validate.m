@@ -815,6 +815,15 @@ function checkRowSupport(ctx)
             info.type);
     end
     checkScales(ctx, did, info, '/row_support');
+    % E16 covers /row_support as it covers a key: one value per row.
+    if numel(info.dims) ~= 1
+        ctx.rep.add('E16', '/row_support', ...
+            '/row_support has one dimension, row, and this has %d', ...
+            numel(info.dims));
+    elseif info.dims(1) ~= ctx.rowCount
+        ctx.rep.add('E16', '/row_support', ...
+            '%d values in a file of %d rows', info.dims(1), ctx.rowCount);
+    end
     checkChunking(ctx, did, info, '/row_support', ctx.rowCount);
     n = numel(ctx.supportNames);
     bad = ctx.rowSupport(ctx.rowSupport < 0 | ctx.rowSupport >= n);
