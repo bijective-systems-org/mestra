@@ -986,7 +986,9 @@ class _FileValidator:
                                   or "recipe" not in attrs):
             self.error("E13", where, "a derived array carries "
                                      "derived_from and recipe")
-        if role in ("weight", "normal") and "recomputed" not in attrs:
+        if role in ("weight", "normal") and not _marked_recomputed(member):
+            # Present and false is no more a mark than absent: the
+            # array does not say it was recomputed (section 14).
             self.warn("W06", where, "%s arrays are recomputed from the "
                                     "connectivity, never imported; say "
                                     "so with recomputed" % role)
@@ -1834,6 +1836,18 @@ def w04(values: np.ndarray, lower: Any, upper: Any) -> str | None:
     return ("%s outside the declared bounds [%s, %s], %s"
             % (_count(int(outside.sum()), "a value", "values"),
                lower, upper, _at("row", rows)))
+
+
+def _marked_recomputed(obj: Any) -> bool:
+    """True when `recomputed` is there and says true. A malformed
+    value is E19's to report, and is not a mark either."""
+    try:
+        value = _attr(obj, "recomputed")
+    except Exception:  # noqa: BLE001
+        return False
+    return value is True or (isinstance(value, (np.integer, int))
+                             and not isinstance(value, bool)
+                             and int(value) == 1)
 
 
 def _names(obj: Any) -> list[str]:

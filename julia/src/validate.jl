@@ -1296,7 +1296,9 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
                     "a derived array needs `derived_from` and `recipe`")
             v.missing_public = true
         end
-        if role in ("weight", "normal") && !haskey(a, "recomputed")
+        # Present and false is no more a mark than absent (W06).
+        if role in ("weight", "normal") &&
+           !(haskey(a, "recomputed") && a["recomputed"].value === true)
             report!(v, "W06", spath,
                     "not marked as recomputed from the connectivity")
         end

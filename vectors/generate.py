@@ -552,6 +552,8 @@ def mesh_base(f, o):
         sattr(w, "source", "data")
         if g("weight_recomputed", True):
             battr(w, "recomputed", True)
+        elif g("weight_recomputed_false", False):
+            battr(w, "recomputed", False)
 
     if g("row_support_values", None) is not None:
         dataset(f, "row_support", g("row_support_values"), "<i4",
@@ -2891,6 +2893,13 @@ CASES = {
         mesh_base, {"weight": True, "weight_recomputed": False},
         "A weight array that does not say it was recomputed from the "
         "connectivity.",
+        warnings=["W06"], support_ids={"s0": MESH_SID}),
+    "warn_w06_false": mk(
+        mesh_base, {"weight": True, "weight_recomputed": False,
+                    "weight_recomputed_false": True},
+        "A weight array whose recomputed attribute is present and false. "
+        "It is not marked as recomputed, so W06 holds as it does when the "
+        "attribute is absent.",
         warnings=["W06"], support_ids={"s0": MESH_SID}),
     "warn_w07": mk(
         mesh_base, {"member_cats": ["wing_a", "wing_b", "wing_c"],
