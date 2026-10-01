@@ -611,6 +611,21 @@ classdef PackageTest < matlab.unittest.TestCase
             H5G.close(gid); H5F.close(fid);
             testCase.verifyEqual(mestra.validate(path).errors, {'E39'});
         end
+
+        function validUtf8IsALimitNotAFault(testCase)
+        %validUtf8IsALimitNotAFault  MATLAB's interface decodes a
+        %   non-ASCII fixed-length string before this package sees it,
+        %   so the bytes cannot be checked: that is this reader's limit
+        %   (E41), said plainly.  It used to check what uint8 made of
+        %   the decoded text and report E26 for valid UTF-8 ("Omega"
+        %   with a capital omega, "ss0" with an eszett), and then E10
+        %   for every id held against the table it had not read.
+            path = fullfile(fileparts(mfilename('fullpath')), 'hostile', ...
+                            'cases', 'utf8_strings.mes');
+            r = mestra.validate(path);
+            testCase.verifyEqual(r.errors, {'E41'});
+            testCase.verifyError(@() mestra.read(path), 'mestra:E41');
+        end
     end
 
     methods (Static)

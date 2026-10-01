@@ -199,6 +199,9 @@ function ctx = gather(ctx)
 
     ctx.categories = containers.Map('KeyType', 'char', 'ValueType', 'any');
     ctx.categoryNames = {};
+    % Tables whose entries this binding could not recover, so that no
+    % value is held against an empty stand-in for them.
+    ctx.unreadTables = {};
     if mestra.internal.Reader.hasGroup(ctx.fid, 'categories')
         g = H5.openGroup(ctx.fid, 'categories');
         for name = H5.children(g)
@@ -212,6 +215,7 @@ function ctx = gather(ctx)
                     ctx.categories(name{1}) = H5.readData(did, info);
                 end
             catch
+                ctx.unreadTables{end + 1} = name{1};
                 % The table cannot be read; checkCategories says so and
                 % every value checked against it is simply not checked.
             end
@@ -567,6 +571,7 @@ function checkKeyValues(ctx, did, path, role, values)
     rep = ctx.rep;
     if isempty(values), return, end
     if ismember(role, {'categorical', 'group', 'split', 'status'})
+        if ismember(strAttr(did, 'category'), ctx.unreadTables), return, end
         table = categoryEntries(ctx, strAttr(did, 'category'));
         if ~isempty(table) || H5.hasAttr(did, 'category')
             n = numel(table);
@@ -698,6 +703,7 @@ function checkUnusedCategories(ctx)
     for i = 1:numel(ctx.groupKeys)
         k = findKey(ctx, ctx.groupKeys{i}, 'name');
         if isempty(k) || isempty(k.category), continue, end
+        if ismember(k.category, ctx.unreadTables), continue, end
         table = categoryEntries(ctx, k.category);
         used = unique(double(k.values));
         for c = 0:numel(table) - 1
@@ -1308,7 +1314,7 @@ end
 
 function checkLabelValues(ctx, oid, info, path)
     name = strAttr(oid, 'category');
-    if isempty(name), return, end
+    if isempty(name) || ismember(name, ctx.unreadTables), return, end
     table = categoryEntries(ctx, name);
     try
         values = double(mestra.internal.H5.readData(oid, info));

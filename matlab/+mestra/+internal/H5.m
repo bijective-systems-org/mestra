@@ -1110,12 +1110,13 @@ classdef H5
         %     'bytes'     the characters came back one per stored byte,
         %                 so out.bytes is exactly what the file holds
         %                 and every rule about those bytes is decidable
-        %     'replaced'  the count is right but characters above 255
-        %                 came back, which is MATLAB substituting one
-        %                 replacement character per byte it could not
-        %                 decode: the bytes were not valid UTF-8
-        %     'decoded'   the count changed, so MATLAB decoded valid
-        %                 multi-byte UTF-8 and the bytes are gone
+        %     'replaced'  U+FFFD came back, which is MATLAB
+        %                 substituting a replacement character for a
+        %                 byte it could not decode: the bytes were not
+        %                 valid UTF-8
+        %     'decoded'   the count changed, or a character above 127
+        %                 came back, so MATLAB decoded valid multi-byte
+        %                 UTF-8 and the bytes are gone
             out.verdict = 'bytes';
             out.bytes = zeros(info.strSize, 0, 'uint8');
             n = prod(max(info.dims, 0));
@@ -1125,6 +1126,14 @@ classdef H5
             if n == 0, return, end
             buf = mestra.internal.H5.guardedRead(did);
             if iscell(buf)
+                % One string per cell is MATLAB's decoded text, and a
+                % character above 127 in it is not a stored byte: the
+                % bytes are gone, and checking what uint8 makes of the
+                % text would report faults the file does not have.
+                if any(cellfun(@(c) any(double(c) > 127), buf(:)))
+                    out.verdict = 'decoded';
+                    return
+                end
                 out.bytes = zeros(info.strSize, n, 'uint8');
                 for i = 1:n
                     b = uint8(buf{i});
@@ -1138,8 +1147,21 @@ classdef H5
                 out.verdict = 'decoded';
                 return
             end
-            if any(codes > 255)
+            % MATLAB stands U+FFFD in for a byte it could not decode;
+            % any other character above 255 is one it did decode, from
+            % valid UTF-8 ("Ωmega" holds U+03A9).
+            if any(codes == 65533)
                 out.verdict = 'replaced';
+                return
+            end
+            % A character from 128 to 255 may be a stored byte or a
+            % character MATLAB decoded from two of them and padded back
+            % to the size ("ß0" is three bytes and comes back as two
+            % characters and a NUL): the two cannot be told apart, so
+            % the bytes are not recovered and nothing is claimed about
+            % them.
+            if any(codes > 127)
+                out.verdict = 'decoded';
                 return
             end
             out.bytes = reshape(uint8(codes), info.strSize, n);

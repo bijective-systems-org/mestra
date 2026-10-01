@@ -391,6 +391,29 @@ def case_string_bad_utf8(f):
                                   np.bytes_(b"\xff\xfe"), dtype=sdtype(2))
 
 
+def case_utf8_strings(f):
+    """Not hostile at all: a category table of valid UTF-8 that is not
+    ASCII. MATLAB's interface decodes it before this package sees the
+    bytes, and the reader must say that it cannot recover them (E41)
+    rather than report the decoded text as a fault of the file."""
+    b = base(f)
+    cats = f.create_group("categories")
+    cat = scale(f, "category_region", 3)
+    raw = ["Ωmega".encode("utf-8"), "ß0".encode("utf-8"), b"ok"]
+    raw_strings(cats, "region", raw, max(len(r) for r in raw), cat)
+    label = b["support"].create_group("cell_arrays")
+    d = label.create_dataset("region", shape=(2, 1), dtype="<i4",
+                             data=np.array([[0], [1]], dtype="<i4"),
+                             track_times=False)
+    d.dims[0].attach_scale(f["supports/s0/cell"])
+    d.dims[1].attach_scale(b["component_1"])
+    sattr(d, "role", "label")
+    sattr(d, "varies", "none")
+    iattr(d, "components", 1)
+    sattr(d, "source", "data")
+    sattr(d, "category", "region")
+
+
 def case_category_empty(f):
     base(f)
     cats = f.create_group("categories")
@@ -473,6 +496,7 @@ CASES = [
     ("scale_no_name", case_scale_no_name),
     ("scale_twice", case_scale_twice),
     ("string_bad_utf8", case_string_bad_utf8),
+    ("utf8_strings", case_utf8_strings),
 ]
 
 
