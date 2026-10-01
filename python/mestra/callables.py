@@ -230,7 +230,14 @@ def callable_from_dict(kind: str, d: Mapping[str, Any],
     known = _REGISTRY.get(kind)
     if known is None:
         return OpaqueCallable(kind, d, repr_line)
-    return known.from_dict(d)
+    made = known.from_dict(d)
+    # The repr line is the producer's (section 10), and a rewrite puts
+    # back the one it read, or none when the file had none, rather
+    # than the one this class would make up.
+    if hasattr(made, "_repr"):
+        made._repr = repr_line
+        made._repr_read = True
+    return made
 
 
 class OpaqueCallable:

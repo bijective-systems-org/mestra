@@ -712,7 +712,7 @@ def affine_base(f, o):
     m1 = f.create_group("callables").create_group("m1")
     if g("type", "affine") is not None:
         sattr(m1, "type", g("type", "affine"))
-    sattr(m1, "repr", "affine(mach, alpha -> cl, pressure)")
+    sattr(m1, "repr", g("repr", "affine(mach, alpha -> cl, pressure)"))
     scale_keys = scale(m1, "mestra_keys_d0", len(AFFINE_KEYS))
     strings(m1, "keys", AFFINE_KEYS, scale_keys)
     if g("zero_d_key", False):
@@ -2521,6 +2521,13 @@ CASES = {
     "mesh_two_rows": case_mesh_two_rows,
     "affine_no_keys": case_affine_no_keys,
     "affine_zero_rows": case_affine_zero_rows,
+    "affine_own_repr": mk(
+        affine_base, {"repr": "pressure model fitted on the March runs"},
+        "The affine callable of docs/example.md with a repr line of its "
+        "producer's own rather than the one an implementation would "
+        "make up. A rewrite keeps the line it read.",
+        support_ids={"s0": MESH_SID},
+        codec={"m1": tagged(affine_dict())}),
     "dictionary_empty_arrays": case_dictionary_empty_arrays,
     "dictionary_null": case_dictionary_null,
     # the five mappings
