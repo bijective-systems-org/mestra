@@ -121,9 +121,13 @@ Array roles (per support):
 Scalars carry the role `scalar` implicitly and require units.
 
 Units are strings in the UDUNITS grammar that CF uses ("Pa", "m s-1",
-"W m-2", "1" for dimensionless). In version 0 a string the validator
-cannot parse is a warning, not an error; tools may convert between
-parseable units and must refuse to combine unparseable ones.
+"W m-2", "1" for dimensionless). A units string parses when it matches
+the grammar of section 32 (products by a space, ".", "*" or "-"; "/"
+and "per" after a factor; "^", "**" or a trailing integer for powers;
+shifts by "@", "since", "from", "after" and "ref"; log references),
+whatever names it uses. In version 0 a string that does not parse is a
+warning, not an error; tools may convert between units they know and
+must refuse to combine units they do not.
 
 
 4. Dimensions and axis order
@@ -676,7 +680,7 @@ Warnings (the file is accepted; the reader must report):
        with no finite value at all
   W09  retired. A categorical key stored as floating point is an
        error by the dtype table of section 19 (E20)
-  W10  a units string the validator cannot parse
+  W10  a units string that does not match the grammar of section 32
   W11  an attribute or a group this reader does not know, ignored
        under section 28
   W12  a chunk shape that is not the default of section 23, on a
@@ -751,6 +755,10 @@ Roles and rules:
 
   - Units are strings in the UDUNITS grammar; a string the validator
     cannot parse is a warning in version 0 and not an error (section 3).
+  - Whether a units string parses is decided by a grammar and never by
+    a list of names, because no two unit databases agree on a list: the
+    four implementations once took 77 strings four ways (sections 3
+    and 32).
   - `split` is a key role, and `status` is a key role with an open
     category table. A label's category table is optional (section 3).
   - Bounds live on the key columns. There is no separate domain group, so
@@ -2162,3 +2170,68 @@ units in part-name order gives:
 and each part's rows are the rows whose `rotor` value is one of its
 units. An implementation that reproduces this table reproduces every
 split, because nothing else in the algorithm depends on the file.
+
+
+32. Units grammar
+-----------------
+
+A units string parses when it matches this grammar, whatever names it
+uses (W10). It is the UDUNITS-2 grammar in the forms CF files use, with
+one widening: the power after "^" or "**" may be any number, so that
+"s^0.5" parses where UDUNITS-2 takes only an integer. Deciding the
+verdict needs no unit database; converting between units does, and is
+a tool's business.
+
+    units      = { sp } product [ shift ] { sp }
+    product    = power { [ operator ] power }
+    operator   = { sp } ( "*" | "." | "-" | "/" | "per" ) { sp }
+               | sp { sp }
+    power      = basic [ integer | ( "^" | "**" ) number ]
+    basic      = name | number | "(" units ")"
+               | ( "log" | "lg" | "ln" | "lb" ) logref
+    logref     = "(" { sp } "re" ( ":" { sp } | sp { sp } ) product
+                 { sp } ")"
+    shift      = { sp } ( "@" | "since" | "from" | "after" | "ref" )
+                 { sp } ( timestamp | number )
+    timestamp  = date [ ( "T" | sp { sp } ) clock [ { sp } zone ] ]
+    date       = [ sign ] digit { digit } "-" digit [ digit ]
+                 [ "-" digit [ digit ] ]
+    clock      = digit [ digit ] ":" digit digit
+                 [ ":" digit digit [ "." { digit } ] ]
+    zone       = name | sign digit [ digit ] [ [ ":" ] digit digit ]
+    number     = [ sign ] ( digit { digit } [ "." { digit } ]
+                          | "." digit { digit } )
+                 [ ( "e" | "E" ) [ sign ] digit { digit } ]
+    integer    = [ sign ] digit { digit }
+    name       = letter { letter | digit }
+    letter     = "A" to "Z" | "a" to "z" | "_" | "%" | "'" | '"'
+               | any character outside ASCII
+    sign       = "+" | "-"
+    digit      = "0" to "9"
+    sp         = " "
+
+A string is matched from the left, each rule taking as much as it can,
+and five readings are fixed so that one string has one verdict:
+
+  - The trailing digits of a name are its power and not part of it:
+    "m2" is m squared and "m2s" is one name.
+  - An `integer` power follows its basic with nothing between: "m-1" is
+    m to the power -1, "m -1" is m times -1, "m-s" is m times s, and
+    "m+s" does not parse.
+  - "per", "since", "from", "after" and "ref" are operators only where
+    an operator can stand, after a power, and only as whole words, not
+    followed by a letter or a digit; anywhere else they are names. So
+    "per s" is a product of two names, and "m per" lacks the power its
+    "per" needs.
+  - After a name "log", "lg", "ln" or "lb", a "(" followed by "re" and
+    then ":" or a space opens a `logref`; any other "(" opens a group.
+  - A shift's operand is a timestamp when one matches and a number
+    otherwise, and a clock or a zone that does not match is not part of
+    the timestamp.
+
+The empty string and a string of spaces do not parse, and the only
+space is U+0020, so a string holding a tab does not parse. Nor does a
+string longer than 4096 bytes in UTF-8, or one whose parentheses, of
+groups and of log references together, nest more than 32 deep; the
+string comes out of a file, and the two bounds keep a recursive parser
+safe on it.

@@ -56,10 +56,9 @@ Report validate(const std::string& path);
 // is a fact of its dataspace (section 29).
 Report validate_metadata(const std::string& path);
 
-// The units parser W10 is driven by: true when the string is in the
-// UDUNITS grammar this version accepts.  It covers what the format
-// needs -- identifiers with exponents, products, quotients and
-// parentheses -- and is deliberately not a units database.
+// The verdict W10 is decided by: true when the string matches the
+// units grammar of section 32, whatever names it uses.  It is a
+// grammar and deliberately not a units database.
 bool units_parse(const std::string& units);
 
 }  // namespace mestra

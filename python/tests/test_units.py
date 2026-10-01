@@ -31,8 +31,11 @@ PARSES = [
     ("degree_C", {"K": 1}),
 ]
 
-REFUSES = ["kg/(m s", "", "   ", "fortnight", "m^", "m**", "s^^2",
-           "m^-2.5", "kg)", "/m", "m/"]
+REFUSES = ["kg/(m s", "", "   ", "m^", "m**", "s^^2", "kg)", "/m", "m/"]
+
+#: Grammatical strings (section 32) that `parse` gives no dimensions
+#: for: a name outside its table, a power that is not an integer.
+NO_DIMENSIONS = ["fortnight", "m^-2.5", "days since 2000-01-01"]
 
 
 @pytest.mark.parametrize("text, dimensions", PARSES)
@@ -46,6 +49,12 @@ def test_what_parses(text, dimensions):
 def test_what_does_not(text):
     assert units.parse(text) is None, text
     assert not units.is_parseable(text)
+
+
+@pytest.mark.parametrize("text", NO_DIMENSIONS)
+def test_grammatical_without_dimensions(text):
+    assert units.is_parseable(text), text
+    assert units.parse(text) is None, text
 
 
 def test_dimensions_decide_what_may_be_combined():
