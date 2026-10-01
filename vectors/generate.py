@@ -3054,6 +3054,15 @@ CASES = {
         "zero-length row axis. Its shape is (0, 6, 1) and stays that "
         "through a rewrite. Neither group category is used.",
         warnings=["W07"], support_ids={"s0": MESH_SID}),
+    "err_e39_kind": mk(
+        lambda f, o: (case_support_kind_none(f),
+                      f["supports/s0"].attrs.__delitem__("kind")),
+        {},
+        "The support of kind none without its kind. That is E39, and no "
+        "rule that depends on the kind applies to a support that does not "
+        "say it: it is not taken for a mesh missing its cells and its "
+        "coordinates. Its digest is n_nodes alone whatever the kind.",
+        errors=["E39"], support_ids={"s0": NONE_SID}),
     "err_e40_dictionary": mk(
         then(affine_base, soft_link_in("callables/m1/outputs")), {},
         "A soft link inside a callable's dictionary. The dictionary is "

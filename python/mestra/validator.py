@@ -778,7 +778,10 @@ class _FileValidator:
             if required not in attrs:
                 self.error("E39", where, "a support carries %s"
                            % required)
-        kind = _attr(group, "kind") or "mesh"
+        # Without a kind (E39 above) no rule that depends on the kind
+        # applies: a support is not taken for a mesh because it did
+        # not say what it is.
+        kind = _attr(group, "kind")
         n_nodes = _attr(group, "n_nodes")
         n_nodes = int(n_nodes) if isinstance(n_nodes, int) else 0
         n_cells = _attr(group, "n_cells")
@@ -929,6 +932,10 @@ class _FileValidator:
                     inside: dict[str, Any]) -> None:
         """E08: the digest against the stored arrays (section 24)."""
         if "support_id" not in _names(group):
+            return
+        if kind not in ("mesh", "axis", "none"):
+            # The declared kind decides which steps contribute bytes,
+            # so a support that declares none has no digest to check.
             return
         axis_coordinates = None
         if kind == "axis" and isinstance(inside.get("coordinates"),

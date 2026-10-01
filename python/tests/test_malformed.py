@@ -307,3 +307,14 @@ def test_a_row_count_disagreeing_with_row_support_refuses_a_read(name):
     with pytest.raises(mestra.MestraError) as caught:
         mestra.read(corpus.case_path(name))
     assert caught.value.rule == "E16"
+
+
+def test_a_mesh_without_its_kind_is_e39_alone(tmp_path):
+    """A support that does not say what kind it is is E39, and no rule
+    that depends on the kind is decided for it. Python took it for a
+    mesh and then for not one: E08 for the digest. C++ said E39 alone;
+    Julia and MATLAB added E03, E08 and E38."""
+    path = _case(tmp_path, "mesh_two_rows", "no_kind")
+    with h5py.File(path, "r+") as f:
+        del f["/supports/s0"].attrs["kind"]
+    assert mestra.validate(path).error_ids == ["E39"]

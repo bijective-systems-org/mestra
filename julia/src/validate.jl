@@ -1106,7 +1106,8 @@ function check_supports!(v::Validator)
             "`kind` must be mesh, axis or none")
         types, offsets, conn = check_cells!(v, path, g, kind, n_nodes, n_cells)
         coords = check_coordinates!(v, path, g, kind, n_nodes)
-        if haskey(a, "support_id") && a["support_id"].value isa AbstractString
+        if haskey(a, "support_id") && a["support_id"].value isa AbstractString &&
+           kind in ("mesh", "axis", "none")
             mesh = kind == "mesh"
             want = support_id(n_nodes;
                               cell_types = mesh ? types : UInt8[],
@@ -1147,7 +1148,7 @@ function check_cells!(v::Validator, path, g, kind, n_nodes, n_cells)
         all(has) || report!(v, "E38", path,
             "a mesh support needs cell_types, cell_offsets and " *
             "cell_connectivity")
-    else
+    elseif kind in ("axis", "none")
         cellscale = hard_child(g, "cell")
         if any(has) || cellscale isa HDF5.Dataset
             report!(v, "E38", path,
@@ -1223,6 +1224,9 @@ end
 
 function check_coordinates!(v::Validator, path, g, kind, n_nodes)
     have = hard_child(g, "coordinates")
+    # A support that does not say what kind it is is E39, and no rule
+    # that depends on the kind is decided for it.
+    kind in ("mesh", "axis", "none") || return nothing
     if kind in ("mesh", "axis")
         have === nothing && (report!(v, "E03", path,
             "a $(kind) support requires a coordinates array"); return nothing)

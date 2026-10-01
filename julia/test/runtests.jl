@@ -1101,6 +1101,20 @@ end
     end
 end
 
+@testset "a support without its kind is E39 alone (section 14)" begin
+    # No rule that depends on the kind is decided for a support that
+    # does not say it; this one was taken for something and drew E03,
+    # E08 and E38 beside the E39.
+    path = joinpath(SCRATCH, "no_kind.mes")
+    cp(case_file("mesh_two_rows"), path; force = true)
+    chmod(path, 0o644)
+    HDF5.h5open(path, "r+") do f
+        HDF5.delete_attribute(f["supports/s0"], "kind")
+    end
+    @test Mestra.validate(path).errors == ["E39"]
+    @test Mestra.validate(case_file("err_e39_kind")).errors == ["E39"]
+end
+
 @testset "a link anywhere in the public tree is E40 (sections 14 and 29)" begin
     # The validator met links only where it walked members for its own
     # reasons, which left out /notes and the group a callable slot is,

@@ -594,6 +594,23 @@ classdef PackageTest < matlab.unittest.TestCase
             testCase.verifyEqual(mestra.validate(path).errors, {'E25'});
             testCase.verifyError(@() mestra.read(path), 'mestra:E25');
         end
+
+        function aSupportWithoutItsKindIsE39Alone(testCase)
+        %aSupportWithoutItsKindIsE39Alone  No rule that depends on the
+        %   kind is decided for a support that does not say it; this
+        %   one drew E08 and E38 beside the E39.
+            path = [tempname() '.mes'];
+            cleanup = onCleanup( ...
+                @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+            copyfile(fullfile(corpusRoot(), 'mesh_two_rows', 'case.mes'), ...
+                     path);
+            fileattrib(path, '+w');
+            fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+            gid = H5G.open(fid, '/supports/s0');
+            H5A.delete(gid, 'kind');
+            H5G.close(gid); H5F.close(fid);
+            testCase.verifyEqual(mestra.validate(path).errors, {'E39'});
+        end
     end
 
     methods (Static)

@@ -895,13 +895,16 @@ function checkOneSupport(ctx, parent, name, index)
     has = @(n) H5.exists(sid, n);
     cellNames = {'cell_types', 'cell_offsets', 'cell_connectivity'};
     present = cellfun(has, cellNames);
+    % A support that does not say what kind it is is E39, and no rule
+    % that depends on the kind is decided for it (E03, E08, E38).
+    knownKind = any(strcmp(kind, {'mesh', 'axis', 'none'}));
     if strcmp(kind, 'mesh')
         if ~all(present)
             rep.add('E38', path, ...
                 'a mesh support is missing %s', ...
                 strjoin(cellNames(~present), ', '));
         end
-    elseif any(present) || has('cell')
+    elseif knownKind && (any(present) || has('cell'))
         rep.add('E38', path, ...
             'a support of kind %s carries cell data', kind);
     end
@@ -946,7 +949,7 @@ function checkOneSupport(ctx, parent, name, index)
         H5D.close(did);
     end
     stored = strAttr(sid, 'support_id');
-    if ~isempty(stored)
+    if ~isempty(stored) && knownKind
         try
             computed = mestra.supportId(record);
             if ~strcmp(computed, stored)
