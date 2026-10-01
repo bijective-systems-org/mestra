@@ -2966,6 +2966,13 @@ CASES = {
         "A key whose name ends in a newline, which is not a character a "
         "netCDF-4 name may hold.",
         errors=["E33"], support_ids={"s0": MESH_SID}),
+    "err_e33_dictionary": mk(
+        then(affine_base, lambda f: sattr(f["callables/m1/outputs/cl"],
+                                          "fitted@march", "yes")),
+        {"type": "example"},
+        "A dictionary key that is not a legal netCDF-4 name: section 17 "
+        "holds every key to the rule of section 18.",
+        errors=["E33"], support_ids={"s0": MESH_SID}),
     "err_e34": mk(
         mesh_base, {"n_group": 3, "coords": MEMBER_COORDS_3},
         "A group-varying array with three instances over a group key "

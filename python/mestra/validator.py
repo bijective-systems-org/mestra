@@ -1226,8 +1226,11 @@ class _FileValidator:
             if top_level and name in ("type", "repr"):
                 continue
             if not is_legal_name(name):
-                self.error("E33", "%s/%s" % (where, name), "a "
-                           "dictionary key is a legal netCDF-4 name")
+                # An attribute's name is reported at the object that
+                # carries it, as for every other attribute: one
+                # finding per rule per object (conventions section 5).
+                self.error("E33", where, "the dictionary key %r is not a "
+                           "legal netCDF-4 name" % name)
 
     # -- the byte-level sweep
 

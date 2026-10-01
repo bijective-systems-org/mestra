@@ -174,3 +174,13 @@ def test_a_finding_about_an_illegal_name_stays_on_one_line():
     line = str(report.errors[0])
     assert "\n" not in line
     assert line.startswith("E33 /keys/mach\\x0a: ")
+
+
+def test_an_illegal_dictionary_key_is_one_finding_at_its_group():
+    """One finding per rule per object (conventions section 5). An
+    attribute's name is about the object that carries it, as the other
+    three implementations report it; the dictionary check also
+    reported it at a path naming the attribute, which is no object."""
+    report = mestra.validate(corpus.case_path("err_e33_dictionary"))
+    assert [(f.rule, f.where) for f in report.errors] == [
+        ("E33", "/callables/m1/outputs/cl")]

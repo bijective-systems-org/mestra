@@ -1374,16 +1374,24 @@ function checkOneCallable(ctx, g, name, path)
 end
 
 function checkDictionaryScales(ctx, gid, path, depth)
-%checkDictionaryScales  E25 on the datasets of a callable's dictionary:
+%checkDictionaryScales  E25 and E33 over a callable's dictionary:
 %   section 21 names the scale on axis i of a dictionary dataset
 %   mestra_<dataset>_d<i>, so a scale of any other name is the wrong
-%   one even when it is a legal name somewhere else.
+%   one even when it is a legal name somewhere else, and section 17
+%   holds a dictionary key to the netCDF-4 name rule (E33).
     if depth > mestra.internal.Limits.get('maxDepth'), return, end
     H5 = mestra.internal.H5;
+    for name = H5.publicAttrNames(gid)
+        if mestra.internal.Text.reserved(name{1}), continue, end
+        if depth == 0 && any(strcmp(name{1}, {'type', 'repr'})), continue, end
+        % An attribute's name is reported at the object carrying it.
+        checkName(ctx, name{1}, path);
+    end
     for name = H5.children(gid)
         if mestra.internal.Text.reserved(name{1}), continue, end
         kind = H5.childType(gid, name{1});
         sub = [path '/' name{1}];
+        checkName(ctx, name{1}, sub);
         if strcmp(kind, 'group')
             g = H5G.open(gid, name{1});
             checkDictionaryScales(ctx, g, sub, depth + 1);
