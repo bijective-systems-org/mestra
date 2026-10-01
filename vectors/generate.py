@@ -2325,6 +2325,23 @@ def case_notes_and_private(f):
                 probe("/keys/mach", mach, row=0)])
 
 
+def private_as_found(f):
+    """A /private whose attributes and datasets are in encodings the
+    public part does not allow, which a copy keeps as they were."""
+    private = f.create_group("private")
+    string_attr_as(private, "origin", "solver log", h5py.h5t.CSET_ASCII,
+                   h5py.h5t.STR_NULLTERM)
+    private.attrs.create("revision", np.int32(7))
+    pd = private.create_dataset("residuals", data=np.array([1.0, 0.5]),
+                                dtype=">f8", track_times=False)
+    # A dimension scale of its own, so that a generic netCDF-4 reader
+    # walking /private still finds a named dimension (section 14).
+    pd.dims[0].attach_scale(scale(private, "sample", 2))
+    pd.attrs.create("scale", np.float64(2.0))
+    string_attr_as(pd, "units", "1", h5py.h5t.CSET_ASCII,
+                   h5py.h5t.STR_SPACEPAD)
+
+
 WIDE_KEYS = 100
 WIDE_SCALARS = 4100
 
@@ -2442,7 +2459,8 @@ def string_attr_as(obj, name, value, cset, pad):
     t.set_size(len(raw))
     t.set_cset(cset)
     t.set_strpad(pad)
-    del obj.attrs[name]
+    if name in obj.attrs:
+        del obj.attrs[name]
     a = h5py.h5a.create(obj.id, name.encode(), t,
                         h5py.h5s.create(h5py.h5s.SCALAR))
     a.write(np.array(raw, dtype="S%d" % len(raw)), mtype=t)
@@ -2850,6 +2868,13 @@ CASES = {
                                  for n in range(N_NODES)]
                                 for k in range(3)]),
                       draw=2, node=4, component=0)]),
+    "private_as_found": mk(
+        then(mesh_base, private_as_found), {},
+        "A /private holding an ASCII null-terminated string attribute, "
+        "an int32 attribute and a big-endian dataset with attributes of "
+        "its own. None of it is checked, and a rewrite carries every "
+        "attribute and dataset with the type it was found with.",
+        support_ids={"s0": MESH_SID}),
     "zero_rows_stored": mk(
         mesh_base, {"n_rows": 0, "mach_values": np.zeros(0),
                     "member_values": np.zeros(0, dtype="<i4"),

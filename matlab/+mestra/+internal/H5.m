@@ -466,13 +466,21 @@ classdef H5
             H5A.close(aid); H5S.close(sid); H5T.close(tid);
         end
 
-        function writeRawStrAttr(oid, name, bytes)
+        function writeRawStrAttr(oid, name, bytes, size, cset, strpad)
         %writeRawStrAttr  A fixed-length string attribute, byte exact.
         %   Used for the null sentinel of section 18, whose first byte
         %   is NUL and which therefore cannot go through unicode2native
-        %   and back.
+        %   and back.  SIZE, CSET and STRPAD, when given, are the type
+        %   the attribute had where it was copied from, so that a copy
+        %   of a group this reader does not interpret keeps them.
             n = max(numel(bytes), 1);
             tid = mestra.internal.H5.strType(n);
+            if nargin > 3
+                n = max([size n]);
+                H5T.set_size(tid, n);
+                H5T.set_cset(tid, cset);
+                H5T.set_strpad(tid, strpad);
+            end
             sid = H5S.create('H5S_SCALAR');
             aid = H5A.create(oid, name, tid, sid, 'H5P_DEFAULT');
             buf = char(zeros(1, n));
@@ -1323,10 +1331,9 @@ classdef H5
             if nargin < 3, depth = 0; end
             if nargin < 4, seen = []; end
             tree.stopped = {};
-            tree.attrs = struct('name', {}, 'type', {}, 'bytes', {}, ...
-                                'value', {});
+            tree.attrs = H5.captureAttrs([]);
             tree.datasets = struct('name', {}, 'info', {}, 'data', {}, ...
-                                   'scales', {}, 'label', {});
+                                   'scales', {}, 'label', {}, 'attrs', {});
             tree.groups = struct('name', {}, 'tree', {});
             if depth > mestra.internal.Limits.get('maxDepth')
                 tree.stopped{end + 1} = sprintf( ...
@@ -1334,19 +1341,7 @@ classdef H5
                     mestra.internal.Limits.get('maxDepth'));
                 return
             end
-            for name = H5.publicAttrNames(gid)
-                info = H5.attrInfo(gid, name{1});
-                rec.name = name{1};
-                rec.type = info.type;
-                rec.bytes = [];
-                rec.value = [];
-                if strcmp(info.type, 'string')
-                    rec.bytes = H5.readRawStrAttr(gid, name{1});
-                elseif ~isempty(info.type)
-                    rec.value = H5.readAttr(gid, name{1});
-                end
-                tree.attrs(end + 1) = rec;
-            end
+            tree.attrs = H5.captureAttrs(gid);
             for name = H5.children(gid)
                 kind = H5.childType(gid, name{1});
                 switch kind
@@ -1410,23 +1405,64 @@ classdef H5
                 end
             end
             rec.label = '';
+            rec.attrs = H5.captureAttrs(did);
             if info.isScale && H5.hasAttr(did, 'NAME')
                 label = H5.readAttr(did, 'NAME');
                 if ischar(label), rec.label = label; end
             end
         end
 
+        function attrs = captureAttrs(oid)
+        %captureAttrs  An object's own attributes, kept as they stand:
+        %   a string with its stored bytes, its size, character set and
+        %   padding, a number with its type.  With OID empty, the empty
+        %   list of the right shape.
+            attrs = struct('name', {}, 'type', {}, 'bytes', {}, ...
+                           'value', {}, 'size', {}, 'cset', {}, ...
+                           'strpad', {});
+            if isempty(oid), return, end
+            H5 = mestra.internal.H5;
+            for name = H5.publicAttrNames(oid)
+                info = H5.attrInfo(oid, name{1});
+                rec.name = name{1};
+                rec.type = info.type;
+                rec.bytes = [];
+                rec.value = [];
+                rec.size = [];
+                rec.cset = [];
+                rec.strpad = [];
+                if strcmp(info.type, 'string')
+                    rec.bytes = H5.readRawStrAttr(oid, name{1});
+                    rec.size = info.size;
+                    rec.cset = info.cset;
+                    rec.strpad = info.strpad;
+                elseif ~isempty(info.type)
+                    rec.value = H5.readAttr(oid, name{1});
+                end
+                attrs(end + 1) = rec; %#ok<AGROW>
+            end
+        end
+
+        function replayAttrs(oid, attrs)
+        %replayAttrs  Write back what captureAttrs took.
+            H5 = mestra.internal.H5;
+            for i = 1:numel(attrs)
+                a = attrs(i);
+                if strcmp(a.type, 'string') && ~isempty(a.size)
+                    H5.writeRawStrAttr(oid, a.name, a.bytes, a.size, ...
+                                       a.cset, a.strpad);
+                elseif strcmp(a.type, 'string')
+                    H5.writeRawStrAttr(oid, a.name, a.bytes);
+                elseif ~isempty(a.type)
+                    H5.writeNumAttr(oid, a.name, a.value, a.type);
+                end
+            end
+        end
+
         function replayTree(gid, tree)
         %replayTree  Write back a subtree captureTree took.
             H5 = mestra.internal.H5;
-            for i = 1:numel(tree.attrs)
-                a = tree.attrs(i);
-                if strcmp(a.type, 'string')
-                    H5.writeRawStrAttr(gid, a.name, a.bytes);
-                elseif ~isempty(a.type)
-                    H5.writeNumAttr(gid, a.name, a.value, a.type);
-                end
-            end
+            H5.replayAttrs(gid, tree.attrs);
             made = containers.Map('KeyType', 'char', 'ValueType', 'any');
             for i = 1:numel(tree.datasets)
                 ds = tree.datasets(i);
@@ -1457,6 +1493,7 @@ classdef H5
                 else
                     H5.writeData(did, ds.info.type, ds.data, ds.info.strSize);
                 end
+                H5.replayAttrs(did, ds.attrs);
                 made(ds.name) = did;
             end
             for i = 1:numel(tree.datasets)

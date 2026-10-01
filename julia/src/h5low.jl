@@ -501,6 +501,20 @@ write_float_attr(obj, name, v::Real) =
 
 """Copy an attribute back out exactly as it came in."""
 function write_raw_attr(obj, a::RawAttr)
+    # An attribute copied from a group this reader does not interpret
+    # goes back with the type it came with: character set, padding,
+    # size and byte order are part of what the copy keeps.
+    if a.readable && a.scalar && !a.ti.vlen &&
+       a.ti.class in (:string, :int, :float) && !isempty(a.raw)
+        dt = raw_datatype(a.ti)
+        attr = HDF5.create_attribute(obj, a.name, dt, scalar_space())
+        try
+            HDF5.API.h5a_write(attr, dt, a.raw)
+        finally
+            close(attr)
+        end
+        return nothing
+    end
     if a.ti.class === :string && !a.ti.vlen && a.npoints == 1
         write_raw_string_attr(obj, a.name, a.raw)
     elseif a.ti.class === :int && a.ti.size == 1

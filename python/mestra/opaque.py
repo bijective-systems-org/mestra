@@ -259,10 +259,25 @@ def _attrs(obj: Any) -> dict[str, tuple[Any, Any]]:
             # say is kept as `dims` and written again by attaching.
             continue
         try:
-            out[name] = (obj.attrs[name], obj.attrs.get_id(name).dtype)
+            out[name] = _attr_copy(obj, name)
         except Exception:
             continue
     return out
+
+
+def _attr_copy(obj: Any, name: str) -> tuple[Any, Any]:
+    """One attribute as it is stored. A fixed-length string keeps its
+    HDF5 type, because its character set and its padding are part of
+    it and a numpy dtype carries neither; its bytes are read through
+    that same type, so nothing is converted on the way."""
+    attr = obj.attrs.get_id(name)
+    kind = attr.get_type()
+    if isinstance(kind, h5py.h5t.TypeStringID) and \
+            not kind.is_variable_str():
+        raw = np.empty(attr.shape, dtype="S%d" % kind.get_size())
+        attr.read(raw, mtype=kind)
+        return raw, kind
+    return obj.attrs[name], attr.dtype
 
 
 def restore(parent: h5py.Group, name: str,
@@ -327,6 +342,13 @@ def _by_name(parent: h5py.Group, name: str) -> h5py.Dataset | None:
 
 def _put_attrs(obj: Any, attrs: dict[str, tuple[Any, Any]]) -> None:
     for name, (value, dtype) in attrs.items():
+        if isinstance(dtype, h5py.h5t.TypeStringID):
+            space = (h5py.h5s.create(h5py.h5s.SCALAR) if value.shape == ()
+                     else h5py.h5s.create_simple(value.shape))
+            attr = h5py.h5a.create(obj.id, name.encode("utf-8"), dtype,
+                                   space)
+            attr.write(value, mtype=dtype)
+            continue
         obj.attrs.create(name, value, dtype=dtype)
 
 
