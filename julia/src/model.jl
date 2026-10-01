@@ -46,7 +46,14 @@ end
 # `<id> <path>: <message>`, which is the one line every language
 # prints (`docs/api-conventions.md` section 5).
 Base.show(io::IO, f::Finding) =
-    print(io, f.rule, " ", f.path, ": ", f.message)
+    print(io, f.rule, " ", one_line(f.path), ": ", one_line(f.message))
+
+"""A path or a message as part of one printed line: a control
+character, which an illegal name can hold, is written as \\xHH so that
+the finding stays on its line."""
+one_line(s::AbstractString) =
+    join((c < ' ' || c == '\x7f') ? "\\x" * string(UInt32(c), base = 16, pad = 2) :
+         string(c) for c in s)
 
 const KEY_ROLES = (:design, :condition, :time, :categorical, :group,
                    :split, :id, :status)
@@ -192,60 +199,6 @@ end
 julia_dims(s::Slot) = Tuple(reverse(s.ldims))
 julia_size(s::Slot) = Tuple(reverse(s.dshape))
 
-"""
-    Support
-
-A mesh, a one-dimensional axis, or none (section 6).  `support_id` is
-the content hash of section 24, which is how two files agree that they
-are about the same thing.
-"""
-mutable struct Support
-    name::String
-    kind::String                      # "mesh", "axis" or "none"
-    n_nodes::Int
-    n_cells::Int
-    support_id::String
-    coordinates::Union{Nothing,Slot}
-    cell_types::Union{Nothing,Vector{UInt8}}
-    cell_offsets::Union{Nothing,Vector{Int64}}
-    cell_connectivity::Union{Nothing,Vector{Int64}}
-    node_arrays::Dict{String,Slot}
-    cell_arrays::Dict{String,Slot}
-end
-
-Support(name, kind; n_nodes = 0, n_cells = 0, support_id = "",
-        coordinates = nothing, cell_types = nothing, cell_offsets = nothing,
-        cell_connectivity = nothing) =
-    Support(String(name), String(kind), n_nodes, n_cells, support_id,
-            coordinates, cell_types, cell_offsets, cell_connectivity,
-            Dict{String,Slot}(), Dict{String,Slot}())
-
-"""A category table: the entries and the byte width they are stored
-in (section 19)."""
-mutable struct CategoryTable
-    name::String
-    entries::Vector{String}
-    strsize::Int
-end
-
-CategoryTable(name, entries) =
-    CategoryTable(String(name), String.(entries),
-                  maximum(vcat([ncodeunits(e) for e in entries], 1)))
-
-"""A callable as the file carries it: a public `type` and a dictionary
-that is opaque to a reader that does not own the type (section 10)."""
-mutable struct CallableRef
-    id::String
-    type::Union{String,Nothing}
-    repr::Union{String,Nothing}
-    dict::Dict{String,Any}
-end
-
-CallableRef(id, type; repr = nothing, dict = Dict{String,Any}()) =
-    CallableRef(String(id), type, repr, dict)
-
-# An object this reader does not own, kept so that a round trip does
-# not lose it: /notes, /private, and anything section 28 adds later.
 """One dataset of a group this reader does not own, copied rather than
 interpreted (sections 12 and 29).
 
@@ -284,6 +237,64 @@ struct RawGroupCopy
     groups::Vector{RawGroupCopy}
 end
 
+"""
+    Support
+
+A mesh, a one-dimensional axis, or none (section 6).  `support_id` is
+the content hash of section 24, which is how two files agree that they
+are about the same thing.
+"""
+mutable struct Support
+    name::String
+    kind::String                      # "mesh", "axis" or "none"
+    n_nodes::Int
+    n_cells::Int
+    support_id::String
+    coordinates::Union{Nothing,Slot}
+    cell_types::Union{Nothing,Vector{UInt8}}
+    cell_offsets::Union{Nothing,Vector{Int64}}
+    cell_connectivity::Union{Nothing,Vector{Int64}}
+    node_arrays::Dict{String,Slot}
+    cell_arrays::Dict{String,Slot}
+    # Groups inside the support this version does not know, copied
+    # whole so that a rewrite carries them (section 28: ignored and
+    # reported, not dropped).
+    extra_groups::Vector{RawGroupCopy}
+end
+
+Support(name, kind; n_nodes = 0, n_cells = 0, support_id = "",
+        coordinates = nothing, cell_types = nothing, cell_offsets = nothing,
+        cell_connectivity = nothing) =
+    Support(String(name), String(kind), n_nodes, n_cells, support_id,
+            coordinates, cell_types, cell_offsets, cell_connectivity,
+            Dict{String,Slot}(), Dict{String,Slot}(), RawGroupCopy[])
+
+"""A category table: the entries and the byte width they are stored
+in (section 19)."""
+mutable struct CategoryTable
+    name::String
+    entries::Vector{String}
+    strsize::Int
+end
+
+CategoryTable(name, entries) =
+    CategoryTable(String(name), String.(entries),
+                  maximum(vcat([ncodeunits(e) for e in entries], 1)))
+
+"""A callable as the file carries it: a public `type` and a dictionary
+that is opaque to a reader that does not own the type (section 10)."""
+mutable struct CallableRef
+    id::String
+    type::Union{String,Nothing}
+    repr::Union{String,Nothing}
+    dict::Dict{String,Any}
+end
+
+CallableRef(id, type; repr = nothing, dict = Dict{String,Any}()) =
+    CallableRef(String(id), type, repr, dict)
+
+# An object this reader does not own, kept so that a round trip does
+# not lose it: /notes, /private, and anything section 28 adds later.
 """
     Dataset
 

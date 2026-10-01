@@ -28,6 +28,8 @@
 #include <thread>
 #include <vector>
 
+#include <hdf5.h>
+
 #include "check.hpp"
 #include "mestra/mestra.hpp"
 
@@ -1557,6 +1559,91 @@ void append_rows_grows_a_file() {
   std::remove(grown.c_str());
 }
 
+// E40 is a link anywhere in the public tree.  The validator once
+// looked only where it enumerated members for its own reasons, which
+// left out /notes and the group a callable slot is; a strict read
+// then read such a file without a word.
+void links_anywhere_public() {
+  for (const char* name : {"err_e40_notes", "err_e40_slot_group",
+                           "err_e40_support", "err_e40_root",
+                           "err_e40_dictionary"}) {
+    const std::string path =
+        std::string("../../vectors/cases/") + name + "/case.mes";
+    if (!std::ifstream(path).good()) {
+      std::cout << "     (" << name << " is not beside the build; skipped)\n";
+      continue;
+    }
+    const mestra::Report r = mestra::validate(path);
+    check::equal(std::string(name) + ": the validator's errors",
+                 r.errors.size() == 1 ? r.errors[0].id : std::string("?"),
+                 "E40");
+    std::string rule;
+    try {
+      mestra::read(path);
+    } catch (const mestra::Error& e) {
+      rule = e.rule();
+    }
+    check::equal(std::string(name) + ": a strict read refuses", rule, "E40");
+  }
+}
+
+// E32 is a semantic rule, so a dictionary holding something section
+// 25 cannot represent does not stop a read (conventions section 2);
+// the read lists what it left out, and a checked write refuses to
+// drop it.
+void unrepresentable_dictionary_entries() {
+  for (const char* name : {"err_e32", "err_e32_float32"}) {
+    const std::string path =
+        std::string("../../vectors/cases/") + name + "/case.mes";
+    if (!std::ifstream(path).good()) {
+      std::cout << "     (" << name << " is not beside the build; skipped)\n";
+      continue;
+    }
+    std::string rule = "read";
+    mestra::Dataset d;
+    try {
+      d = mestra::read(path);
+    } catch (const mestra::Error& e) {
+      rule = e.rule();
+    }
+    check::equal(std::string(name) + ": a strict read returns", rule, "read");
+    check::is_true(std::string(name) + ": the read lists the entry",
+                   d.not_read.size() == 1 && d.not_read[0].id == "E32");
+    std::string refused;
+    try {
+      mestra::write(d, "mestra_unit_e32.mes");
+    } catch (const mestra::Error& e) {
+      refused = e.rule();
+    }
+    check::equal(std::string(name) + ": a checked write refuses", refused,
+                 "E32");
+    std::remove("mestra_unit_e32.mes");
+  }
+}
+
+// An axis attached to an object the file no longer names: a scale
+// unlinked while it was open survives as an anonymous object, so the
+// axis still dereferences, and to nothing a reader can name.  E25.
+void an_axis_on_an_unnamed_object() {
+  const std::string source = "../../vectors/cases/mesh_two_rows/case.mes";
+  const std::string path = "mestra_unit_unnamed_scale.mes";
+  if (!std::ifstream(source).good()) {
+    std::cout << "     (mesh_two_rows is not beside the build; skipped)\n";
+    return;
+  }
+  std::filesystem::copy_file(
+      source, path, std::filesystem::copy_options::overwrite_existing);
+  const hid_t file = H5Fopen(path.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  const hid_t scale = H5Dopen2(file, "component_2", H5P_DEFAULT);
+  H5Ldelete(file, "component_2", H5P_DEFAULT);
+  H5Dclose(scale);
+  H5Fclose(file);
+  const std::vector<std::string> ids = mestra::validate(path).error_ids();
+  check::is_true("an axis on an unnamed object is E25",
+                 std::find(ids.begin(), ids.end(), "E25") != ids.end());
+  std::remove(path.c_str());
+}
+
 int main() {
   sha256_vectors();
   support_id_vectors();
@@ -1576,5 +1663,8 @@ int main() {
   hardened_value_types();
   bytes_order();
   append_rows_grows_a_file();
+  links_anywhere_public();
+  unrepresentable_dictionary_entries();
+  an_axis_on_an_unnamed_object();
   return check::finish("mestra unit tests");
 }

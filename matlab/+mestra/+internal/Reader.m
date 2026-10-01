@@ -141,7 +141,7 @@ classdef Reader
                         info = H5.dsetInfo(did);
                         mestra.internal.Reader.checkAttrs(d, did, path);
                         mestra.internal.Reader.inspect(did, info, d, path, ...
-                                                       scales);
+                            scales, {['category_' name{1}]});
                         rec = mestra.Dataset.emptyCategory();
                         rec(1).name = name{1};
                         rec(1).entries = mestra.internal.Reader.readValues( ...
@@ -199,6 +199,8 @@ classdef Reader
             if mestra.internal.Reader.hasKind(fid, 'row_support', 'dataset')
                 did = H5D.open(fid, 'row_support');
                 info = H5.dsetInfo(did);
+                mestra.internal.Reader.inspect(did, info, d, ...
+                                               '/row_support', scales);
                 d.rowSupport = int32(H5.readData(did, info));
                 d.rowSupport = reshape(d.rowSupport, 1, []);
                 H5D.close(did);
@@ -218,6 +220,7 @@ classdef Reader
                 end
                 d.supports = mestra.internal.Reader.join(d.supports, found);
                 H5G.close(g);
+                mestra.internal.Reader.checkRowsPerSupport(d);
             end
 
             if mestra.internal.Reader.hasGroup(fid, 'callables')
@@ -230,11 +233,12 @@ classdef Reader
                     end
                     [record, limits] = ...
                         mestra.internal.Reader.readCallable(g, name{1}, ...
-                                                            d, eager);
+                                                            d, eager, scales);
                     found{end + 1} = record; %#ok<AGROW>
                     for i = 1:numel(limits)
                         mestra.internal.Reader.note(d, ...
-                            ['/callables/' name{1}], 'E41', limits{i});
+                            ['/callables/' name{1}], limits{i}{1}, ...
+                            limits{i}{2});
                     end
                 end
                 d.callables = mestra.internal.Reader.join(d.callables, found);
@@ -247,8 +251,38 @@ classdef Reader
                 end
                 g = H5.openGroup(fid, which{1});
                 tree = H5.captureTree(g, scales);
+                links = {};
+                if strcmp(which{1}, 'notes')
+                    % /notes is public, so a link among its members is
+                    % E40 (section 14), and the walk's own note of it
+                    % is not a second finding; a dataset there is held
+                    % to the byte-level rules like any public dataset.
+                    mestra.internal.Reader.noteLinks(d, g, '/notes');
+                    for name = H5.children(g)
+                        if ~strcmp(H5.childType(g, name{1}), 'dataset')
+                            continue
+                        end
+                        did = H5D.open(g, name{1});
+                        info = H5.dsetInfo(did);
+                        if ~info.isScale
+                            mestra.internal.Reader.inspect(did, info, d, ...
+                                ['/notes/' name{1}], scales);
+                        end
+                        H5D.close(did);
+                    end
+                    for name = H5.children(g)
+                        if any(strcmp(H5.childType(g, name{1}), ...
+                                      {'soft', 'external'}))
+                            links{end + 1} = ['"' name{1} '" is a ']; %#ok<AGROW>
+                        end
+                    end
+                end
                 H5G.close(g);
                 for i = 1:numel(tree.stopped)
+                    if any(cellfun(@(l) startsWith(tree.stopped{i}, l), ...
+                                   links))
+                        continue
+                    end
                     mestra.internal.Reader.note(d, ['/' which{1}], ...
                         'E41', tree.stopped{i});
                 end
@@ -467,7 +501,7 @@ classdef Reader
             end
         end
 
-        function inspect(did, info, d, path, map)
+        function inspect(did, info, d, path, map, wanted)
         %inspect  Record what would stop this dataset being read.
         %   Section 23 makes a reader refuse a dataset with a filter
         %   that is not gzip or shuffle (E29), and section 21 requires
@@ -483,6 +517,7 @@ classdef Reader
         %   keys, and handing it back would be worse than refusing it
         %   (docs/api-conventions.md, section 2).
             if nargin < 5, map = []; end
+            if nargin < 6, wanted = {}; end
             if ~isempty(info.dims)
                 leading = mestra.internal.H5.scaleNames(did, 0, map);
                 if ~isempty(leading) && strcmp(leading(1).name, 'row') && ...
@@ -517,14 +552,24 @@ classdef Reader
                     mestra.internal.Reader.note(d, path, 'E25', sprintf( ...
                         ['axis %d is attached to something this reader ' ...
                          'cannot name'], axis - 1));
+                elseif numel(wanted) >= axis && ~isempty(wanted{axis}) && ...
+                        ~strcmp(found(1).name, wanted{axis})
+                    % Where the position decides the one name section 21
+                    % allows -- a table, a support's own cell datasets --
+                    % another name is the wrong dimension.
+                    mestra.internal.Reader.note(d, path, 'E25', sprintf( ...
+                        'axis %d carries "%s" where section 21 names "%s"', ...
+                        axis - 1, found(1).name, wanted{axis}));
                 end
             end
         end
 
-        function values = readValues(did, info, d, path)
+        function [values, ok] = readValues(did, info, d, path)
         %readValues  Read a dataset, noting why if it will not read.
-        %   Returns [] when the data could not be had, with the reason
-        %   recorded under the rule it breaks.
+        %   Returns [] and OK false when the data could not be had,
+        %   with the reason recorded under the rule it breaks.  A
+        %   dataset with no elements reads as an empty array of its
+        %   own shape and OK true: empty is a value, not a failure.
             try
                 if strcmp(info.type, 'string')
                     out = mestra.internal.H5.decodeStrings(did, info);
@@ -544,7 +589,9 @@ classdef Reader
                     end
                 end
                 values = mestra.internal.H5.readData(did, info);
+                ok = true;
             catch err
+                ok = false;
                 id = 'E41';
                 if strcmp(err.identifier, 'mestra:E41'), id = 'E41'; end
                 mestra.internal.Reader.note(d, path, id, ...
@@ -632,6 +679,8 @@ classdef Reader
             if strcmp(H5.childType(g, name), 'group')
                 oid = H5G.open(g, name);
                 R = @mestra.internal.Reader;
+                R().noteLinks(d, oid, path);
+                R().inspectMembers(d, oid, path, map);
                 R().checkAttrs(d, oid, path);
                 rec(1).units = R().str(oid, 'units');
                 rec(1).source = R().str(oid, 'source');
@@ -685,6 +734,7 @@ classdef Reader
             rec = mestra.Dataset.emptySupport();
             rec(1).name = name;
             path = ['/supports/' name];
+            mestra.internal.Reader.noteLinks(d, sid, path);
             mestra.internal.Reader.checkAttrs(d, sid, path);
             rec(1).kind = mestra.internal.Reader.str(sid, 'kind');
             rec(1).nNodes = mestra.internal.Reader.num(sid, 'n_nodes');
@@ -705,13 +755,15 @@ classdef Reader
                 end
             end
 
-            plain = {'cell_types', 'cellTypes'; ...
-                     'cell_offsets', 'cellOffsets'; ...
-                     'cell_connectivity', 'cellConnectivity'};
+            plain = {'cell_types', 'cellTypes', 'cell'; ...
+                     'cell_offsets', 'cellOffsets', 'cell_plus_one'; ...
+                     'cell_connectivity', 'cellConnectivity', 'index'};
             for i = 1:size(plain, 1)
                 if mestra.internal.Reader.hasKind(sid, plain{i, 1}, 'dataset')
                     did = H5D.open(sid, plain{i, 1});
                     info = H5.dsetInfo(did);
+                    mestra.internal.Reader.inspect(did, info, d, ...
+                        [path '/' plain{i, 1}], map, plain(i, 3));
                     rec(1).(plain{i, 2}) = ...
                         reshape(H5.readData(did, info), 1, []);
                     H5D.close(did);
@@ -749,6 +801,37 @@ classdef Reader
                 end
                 H5G.close(ag);
             end
+            % A dataset this version does not know, inside a support
+            % group, is a public object, so the byte-level rules are
+            % checked on it as on any other (section 14); it is not
+            % read, and a rewrite lists it as lossy.
+            known = {'coordinates', 'node_arrays', 'cell_arrays', ...
+                     'cell_types', 'cell_offsets', 'cell_connectivity', ...
+                     'node', 'cell', 'cell_plus_one', 'index', 'row'};
+            rec(1).extraGroups = struct('name', {}, 'tree', {});
+            for nm = H5.children(sid)
+                if ismember(nm{1}, known), continue, end
+                if strcmp(H5.childType(sid, nm{1}), 'group')
+                    % A group this version does not know: copied whole,
+                    % so that a rewrite carries it (section 28).
+                    eg = H5G.open(sid, nm{1});
+                    tree = H5.captureTree(eg, map);
+                    H5G.close(eg);
+                    rec(1).extraGroups(end + 1) = ...
+                        struct('name', nm{1}, 'tree', tree);
+                    continue
+                end
+                if ~strcmp(H5.childType(sid, nm{1}), 'dataset')
+                    continue
+                end
+                did = H5D.open(sid, nm{1});
+                info = H5.dsetInfo(did);
+                if ~info.isScale
+                    mestra.internal.Reader.inspect(did, info, d, ...
+                        [path '/' nm{1}], map);
+                end
+                H5D.close(did);
+            end
             H5G.close(sid);
         end
 
@@ -767,6 +850,8 @@ classdef Reader
             isGroup = strcmp(H5.childType(g, name), 'group');
             if isGroup
                 oid = H5G.open(g, name);
+                R().noteLinks(d, oid, path);
+                R().inspectMembers(d, oid, path, map);
             else
                 oid = H5D.open(g, name);
             end
@@ -814,10 +899,13 @@ classdef Reader
             rec(1).filters = info.filters;
             R().inspect(oid, info, d, path, map);
             if eager
-                values = R().readValues(oid, info, d, path);
-                if isempty(values)
+                [values, ok] = R().readValues(oid, info, d, path);
+                if ~ok
                     rec(1).values = [];
                 else
+                    % A zero-length extent, which a zero-row file or a
+                    % support no row is on gives a row-varying slot, is
+                    % kept: the empty array still has its shape.
                     rec(1).values = reshape(values, [fliplr(info.dims) 1 1]);
                 end
             else
@@ -826,7 +914,7 @@ classdef Reader
             H5D.close(oid);
         end
 
-        function [rec, limits] = readCallable(g, id, d, eager)
+        function [rec, limits] = readCallable(g, id, d, eager, map)
         %readCallable  One callable: its type, its dictionary and, when
         %   the type is registered, the object itself.  A reader that
         %   does not know the type keeps the dictionary and must not
@@ -847,17 +935,24 @@ classdef Reader
             if nargin < 3, d = []; end
             if nargin < 4, eager = true; end
             gid = mestra.internal.H5.openGroup(g, id);
-            mestra.internal.Reader.checkAttrs(d, gid, ['/callables/' id]);
+            mestra.internal.Reader.checkAttrs(d, gid, ['/callables/' id], ...
+                                              {'type', 'repr'});
             rec = mestra.Dataset.emptyCallable();
             rec(1).id = id;
             rec(1).type = mestra.internal.Reader.str(gid, 'type');
             rec(1).repr = mestra.internal.Reader.str(gid, 'repr');
             rec(1).obj = [];
-            [dict, problems] = mestra.internal.Codec.read(gid, true, 0, eager);
+            if nargin < 5, map = []; end
+            [dict, problems] = mestra.internal.Codec.read(gid, true, 0, ...
+                                                          eager, map);
             limits = {};
             for i = 1:numel(problems)
                 if numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'U03 ')
-                    limits{end + 1} = problems{i}(5:end); %#ok<AGROW>
+                    limits{end + 1} = {'E41', problems{i}(5:end)}; %#ok<AGROW>
+                elseif numel(problems{i}) > 4 && ...
+                        any(strcmp(problems{i}(1:4), {'E40 ', 'E25 '}))
+                    limits{end + 1} = {problems{i}(1:3), ...
+                                       problems{i}(5:end)}; %#ok<AGROW>
                 end
             end
             if ~eager
@@ -900,7 +995,7 @@ classdef Reader
             end
         end
 
-        function checkAttrs(d, oid, path)
+        function checkAttrs(d, oid, path, only)
         %checkAttrs  E19 and E26 over one object's attributes.
         %   The rules are section 18's and live in
         %   mestra.internal.Attrs, so that the reader and the
@@ -912,7 +1007,11 @@ classdef Reader
         %   the file is still accepted, so the reader passes over it
         %   without refusing the file.
             if isempty(d), return, end
-            found = mestra.internal.Attrs.findings(oid);
+            if nargin > 3
+                found = mestra.internal.Attrs.findings(oid, only);
+            else
+                found = mestra.internal.Attrs.findings(oid);
+            end
             for i = 1:numel(found)
                 if strcmp(found(i).id, 'W11'), continue, end
                 mestra.internal.Reader.note(d, path, found(i).id, ...
@@ -932,7 +1031,9 @@ classdef Reader
             if isempty(source), return, end
             servedByCallable = numel(source) > 9 && ...
                                strncmp(source, 'callable:', 9);
-            if isGroup && ~servedByCallable
+            % A source that is neither word is E36 and says nothing
+            % about which kind of slot was meant.
+            if isGroup && strcmp(source, 'data')
                 mestra.internal.Reader.note(d, path, 'E30', sprintf( ...
                     ['source is "%s" and the slot is a group; a slot ' ...
                      'holding data is a dataset'], source));
@@ -941,6 +1042,74 @@ classdef Reader
                     ['source names a callable and the slot is a ' ...
                      'dataset; a slot served by a callable is a group ' ...
                      'with no data']);
+            end
+        end
+
+        function checkRowsPerSupport(d)
+        %checkRowsPerSupport  E16 in an unaligned file: a row-varying
+        %   slot on a support has one entry per row that references it
+        %   (section 22), which only /row_support says.  A metadata
+        %   open reads that column for this (conventions section 7),
+        %   so the open and the read refuse the same file.
+            if numel(d.supports) < 2 || isempty(d.rowSupport), return, end
+            order = mestra.internal.H5.sortByBytes({d.supports.name});
+            for i = 1:numel(d.supports)
+                s = d.supports(i);
+                want = sum(double(d.rowSupport) == ...
+                           find(strcmp(order, s.name), 1) - 1);
+                slots = [s.nodeArrays s.cellArrays];
+                if ~isempty(s.coordinates), slots = [slots s.coordinates]; end
+                for j = 1:numel(slots)
+                    a = slots(j);
+                    if ~strcmp(a.varies, 'row') || ~strcmp(a.source, 'data') || ...
+                            isempty(a.shape) || a.shape(1) == want
+                        continue
+                    end
+                    if strcmp(a.name, 'coordinates')
+                        where = ['/supports/' s.name '/coordinates'];
+                    else
+                        where = ['/supports/' s.name '/' a.location ...
+                                 '_arrays/' a.name];
+                    end
+                    mestra.internal.Reader.note(d, where, 'E16', sprintf( ...
+                        ['%d entries where %d rows of this file are on ' ...
+                         'the support'], a.shape(1), want));
+                end
+            end
+        end
+
+        function inspectMembers(d, gid, path, map)
+        %inspectMembers  The byte-level rules on a dataset found inside
+        %   a slot a callable serves, which holds none by right but is
+        %   a public object if it does.
+            if isempty(d), return, end
+            for name = mestra.internal.H5.children(gid)
+                if ~strcmp(mestra.internal.H5.childType(gid, name{1}), ...
+                           'dataset')
+                    continue
+                end
+                did = H5D.open(gid, name{1});
+                info = mestra.internal.H5.dsetInfo(did);
+                if ~info.isScale
+                    mestra.internal.Reader.inspect(did, info, d, ...
+                        [path '/' name{1}], map);
+                end
+                H5D.close(did);
+            end
+        end
+
+        function noteLinks(d, gid, path)
+        %noteLinks  E40 for each member of a public group that is a
+        %   soft or an external link.  Used where the reader does not
+        %   otherwise walk the members: a support group's own, a slot
+        %   a callable serves, and /notes.  None is followed.
+            if isempty(d), return, end
+            for name = mestra.internal.H5.children(gid)
+                kind = mestra.internal.H5.childType(gid, name{1});
+                if any(strcmp(kind, {'soft', 'external'}))
+                    mestra.internal.Reader.note(d, [path '/' name{1}], ...
+                        'E40', sprintf('a %s link, not followed', kind));
+                end
             end
         end
 

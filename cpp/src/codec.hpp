@@ -24,8 +24,15 @@ bool machinery_attribute(const std::string& name);
 // `depth` counts the groups already descended through; the walk stops
 // at kMaxDictDepth and raises E32 rather than recursing until the
 // stack gives out.
+//
+// A dataset section 25 cannot represent -- a zero-dimensional one, or
+// one of a dtype no dictionary holds -- is E32, which is a semantic
+// rule and does not stop a read.  With `left_out`, such a dataset is
+// listed there and the rest of the dictionary is read; without it,
+// the read throws E32.
 Dict read_dict_group(const File& f, const std::string& path, bool top_level,
-                     int depth = 0);
+                     int depth = 0,
+                     std::vector<Finding>* left_out = nullptr);
 
 // The storage a reader found for a dataset or a dimension scale, by
 // HDF5 path, so that a round trip reproduces the file it came from:

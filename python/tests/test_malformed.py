@@ -269,3 +269,52 @@ def test_a_bound_that_is_not_finite(tmp_path):
             "level", np.float64("inf"))
     report = mestra.validate(path)
     assert report.error_ids == ["E12", "E19"]
+
+
+def test_a_big_endian_array_in_a_dictionary(tmp_path):
+    """Section 25 stores a numeric array in a dictionary
+    little-endian. A big-endian float64 has the name float64 in numpy,
+    so a check of the dtype's name alone let it through; it is E32,
+    and the file still reads, since E32 is not structural."""
+    path = _case(tmp_path, "callable_two_slots", "dictionary_big_endian")
+    with h5py.File(path, "r+") as f:
+        group = f["/callables/m2"]
+        data = group.create_dataset("weights", data=[0.5, 0.25],
+                                    dtype=">f8", track_times=False)
+        dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+        dcpl.set_attr_creation_order(h5py.h5p.CRT_ORDER_TRACKED |
+                                     h5py.h5p.CRT_ORDER_INDEXED)
+        dcpl.set_obj_track_times(False)
+        dcpl.set_chunk((2,))
+        dim = h5py.Dataset(h5py.h5d.create(
+            group.id, b"mestra_weights_d0", h5py.h5t.IEEE_F32BE,
+            h5py.h5s.create_simple((2,), (2,)), dcpl=dcpl))
+        dim.make_scale("This is a netCDF dimension but not a netCDF "
+                       "variable.         2")
+        data.dims[0].attach_scale(dim)
+    report = mestra.validate(path)
+    assert report.error_ids == ["E32"]
+    assert [f.where for f in report.errors] == ["/callables/m2/weights"]
+
+
+@pytest.mark.parametrize("name", ["err_e16_row_support",
+                                  "err_e16_support_rows"])
+def test_a_row_count_disagreeing_with_row_support_refuses_a_read(name):
+    """E16 is structural, so a strict read refuses it. In an unaligned
+    file it is decided from /row_support, which a metadata open reads
+    in full (conventions section 7); the open used to leave it to the
+    full validator, and the read returned the file."""
+    with pytest.raises(mestra.MestraError) as caught:
+        mestra.read(corpus.case_path(name))
+    assert caught.value.rule == "E16"
+
+
+def test_a_mesh_without_its_kind_is_e39_alone(tmp_path):
+    """A support that does not say what kind it is is E39, and no rule
+    that depends on the kind is decided for it. Python took it for a
+    mesh and then for not one: E08 for the digest. C++ said E39 alone;
+    Julia and MATLAB added E03, E08 and E38."""
+    path = _case(tmp_path, "mesh_two_rows", "no_kind")
+    with h5py.File(path, "r+") as f:
+        del f["/supports/s0"].attrs["kind"]
+    assert mestra.validate(path).error_ids == ["E39"]

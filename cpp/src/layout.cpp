@@ -26,17 +26,20 @@ std::size_t rows_on_support(const Dataset& d, std::size_t index) {
   return n;
 }
 
+// Section 21: a support-local `row` exists in an unaligned file in a
+// support that carries an array with varies = row.  A slot a callable
+// serves is such an array even though it holds no data yet, so it
+// counts too, as it does in every other implementation.
 bool needs_local_row(const Dataset& d, const Support& s) {
   if (d.aligned) return false;
-  if (s.coordinates.has_value() && s.coordinates->varies == "row" &&
-      !s.coordinates->is_callable()) {
+  if (s.coordinates.has_value() && s.coordinates->varies == "row") {
     return true;
   }
   for (const ArraySlot& a : s.node_arrays) {
-    if (a.varies == "row" && !a.is_callable()) return true;
+    if (a.varies == "row") return true;
   }
   for (const ArraySlot& a : s.cell_arrays) {
-    if (a.varies == "row" && !a.is_callable()) return true;
+    if (a.varies == "row") return true;
   }
   return false;
 }

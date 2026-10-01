@@ -1,0 +1,1 @@
+{"codec":{},"description":"A field whose varies is none of the three words section 5 names. Its shape has as many axes as a row-varying one, so only the word itself is wrong.","evaluation":[],"probes":[],"support_ids":{"s0":"96df395d80ef548444562292de441525ba0b5c8ad00a8dadff19a19c943936c7"},"validator":{"errors":["E04"],"warnings":[]}}

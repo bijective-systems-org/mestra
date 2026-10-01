@@ -92,7 +92,10 @@ classdef Writer
             end
 
             % ----------------------------------------- row_support
-            if ~isempty(d.rowSupport)
+            % Section 22: a file that declares more than one support
+            % has /row_support, and with no rows it is empty, not
+            % absent.
+            if ~isempty(d.rowSupport) || numel(d.supports) > 1
                 chunk = mestra.internal.Writer.rowChunk(4, [], ...
                                                         numel(d.rowSupport));
                 did = H5.createDataset(root, 'row_support', 'int32', ...
@@ -347,6 +350,15 @@ classdef Writer
                 end
                 H5G.close(cg);
             end
+            % Groups inside the support this version does not know, put
+            % back as they were read (section 28).
+            extras = [];
+            if isfield(s, 'extraGroups'), extras = s.extraGroups; end
+            for i = 1:numel(extras)
+                eg = mestra.internal.Writer.group(sid, extras(i).name);
+                mestra.internal.H5.replayTree(eg, extras(i).tree);
+                H5G.close(eg);
+            end
 
             for name = local.keys()
                 H5D.close(local(name{1}));
@@ -564,7 +576,7 @@ classdef Writer
 
         function n = itemSize(dtype)
         %itemSize  Bytes per element of a dtype.
-            switch dtype
+            switch mestra.internal.H5.baseType(dtype)
                 case {'float64', 'int64'}, n = 8;
                 case {'float32', 'int32'}, n = 4;
                 case {'int8', 'uint8'}, n = 1;

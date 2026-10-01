@@ -356,7 +356,7 @@ function decode_raw(ti::TypeInfo, raw::Vector{UInt8}, npoints::Int)
     elseif ti.class === :int
         T = julia_eltype(ti)
         T === Nothing && return nothing
-        vals = reinterpret(T, raw)
+        vals = in_byte_order(reinterpret(T, raw), ti)
         if ti.size == 1
             # Section 18: an int8 attribute is a boolean, "value 0 for
             # false and 1 for true.  No other value is legal."  There
@@ -373,11 +373,18 @@ function decode_raw(ti::TypeInfo, raw::Vector{UInt8}, npoints::Int)
     elseif ti.class === :float
         T = julia_eltype(ti)
         T === Nothing && return nothing
-        vals = reinterpret(T, raw)
+        vals = in_byte_order(reinterpret(T, raw), ti)
         return npoints == 1 ? Float64(vals[1]) : Float64.(collect(vals))
     end
     return nothing
 end
+
+"""The values of `raw` bytes as the numbers the file means.  The bytes
+are read in the file's own byte order, so a big-endian attribute is
+swapped here; E19 still refuses it, and the message it prints then
+quotes the value the file holds rather than a byte-swapped one."""
+in_byte_order(vals, ti::TypeInfo) =
+    (ti.little || ti.size == 1) ? vals : bswap.(vals)
 
 """Read one attribute exactly as stored."""
 function read_raw_attr(obj, name::AbstractString)
@@ -494,6 +501,20 @@ write_float_attr(obj, name, v::Real) =
 
 """Copy an attribute back out exactly as it came in."""
 function write_raw_attr(obj, a::RawAttr)
+    # An attribute copied from a group this reader does not interpret
+    # goes back with the type it came with: character set, padding,
+    # size and byte order are part of what the copy keeps.
+    if a.readable && a.scalar && !a.ti.vlen &&
+       a.ti.class in (:string, :int, :float) && !isempty(a.raw)
+        dt = raw_datatype(a.ti)
+        attr = HDF5.create_attribute(obj, a.name, dt, scalar_space())
+        try
+            HDF5.API.h5a_write(attr, dt, a.raw)
+        finally
+            close(attr)
+        end
+        return nothing
+    end
     if a.ti.class === :string && !a.ti.vlen && a.npoints == 1
         write_raw_string_attr(obj, a.name, a.raw)
     elseif a.ti.class === :int && a.ti.size == 1

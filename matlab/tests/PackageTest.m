@@ -426,10 +426,10 @@ classdef PackageTest < matlab.unittest.TestCase
         %
         %   Such a file can be read as E27 or as nothing at all, which
         %   is why it is pinned here.  Both names below are the same
-        %   rule, and the one this
-        %   version happens to know as a support's own dimension scale
-        %   draws no W11 while the other does.
-            for probe = {{'row', false}, {'extra', true}}
+        %   rule.  Neither draws W11, which is about an attribute or a
+        %   group (sections 14 and 28) and not a dataset, as the other
+        %   three implementations read it.
+            for probe = {{'row', false}, {'extra', false}}
                 name = probe{1}{1};
                 unknownName = probe{1}{2};
                 path = [tempname() '.mes'];
@@ -449,6 +449,182 @@ classdef PackageTest < matlab.unittest.TestCase
                 testCase.verifyEqual(ismember('W11', r.warnings), ...
                                      unknownName, strjoin(r.warnings, ' '));
             end
+        end
+
+        function byteOrderIsPartOfTheEncoding(testCase)
+        %byteOrderIsPartOfTheEncoding  Section 18 names little-endian
+        %   types for every number and section 19 stores every numeric
+        %   dataset little-endian.  A check of class and size alone,
+        %   which H5T gives without the byte order, passed both.
+            path = [tempname() '.mes'];
+            cleanup = onCleanup( ...
+                @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+            copyfile(fullfile(corpusRoot(), 'mesh_two_rows', 'case.mes'), ...
+                     path);
+            fileattrib(path, '+w');
+            fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+            gid = H5G.open(fid, '/supports/s0');
+            H5A.delete(gid, 'n_cells');
+            tid = H5T.copy('H5T_STD_I64BE');
+            sid = H5S.create('H5S_SCALAR');
+            aid = H5A.create(gid, 'n_cells', tid, sid, 'H5P_DEFAULT');
+            H5A.write(aid, 'H5T_NATIVE_LLONG', int64(2));
+            H5A.close(aid); H5S.close(sid); H5T.close(tid);
+            H5G.close(gid); H5F.close(fid);
+            r = mestra.validate(path);
+            testCase.verifyEqual(r.errors, {'E19'});
+            testCase.verifyError(@() mestra.read(path), 'mestra:E19');
+
+            % A big-endian dataset is E20 alone, a semantic rule, so
+            % the file reads, and the values are the ones it holds.
+            big = fullfile(corpusRoot(), 'err_e20_big_endian', 'case.mes');
+            r = mestra.validate(big);
+            testCase.verifyEqual(r.errors, {'E20'});
+            d = mestra.read(big);
+            testCase.verifyEqual(d.scalar('cl').values(:)', [0.25 0.55]);
+        end
+
+        function aStringAttributeIsUtf8WithNulPadding(testCase)
+        %aStringAttributeIsUtf8WithNulPadding  Section 18: a string
+        %   attribute is fixed-length UTF-8 padded with NUL, and both
+        %   the character set and the padding are the encoding.  This
+        %   reader read the bytes and checked them, and never asked
+        %   how they were declared.
+            for variant = {{'H5T_CSET_ASCII', 'H5T_STR_NULLPAD'}, ...
+                           {'H5T_CSET_UTF8', 'H5T_STR_SPACEPAD'}, ...
+                           {'H5T_CSET_UTF8', 'H5T_STR_NULLTERM'}}
+                path = [tempname() '.mes'];
+                cleanup = onCleanup( ...
+                    @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+                copyfile(fullfile(corpusRoot(), 'mesh_two_rows', ...
+                                  'case.mes'), path);
+                fileattrib(path, '+w');
+                fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+                did = H5D.open(fid, '/scalars/cl');
+                H5A.delete(did, 'units');
+                tid = H5T.copy('H5T_C_S1');
+                H5T.set_size(tid, 2);
+                H5T.set_cset(tid, H5ML.get_constant_value(variant{1}{1}));
+                H5T.set_strpad(tid, H5ML.get_constant_value(variant{1}{2}));
+                sid = H5S.create('H5S_SCALAR');
+                aid = H5A.create(did, 'units', tid, sid, 'H5P_DEFAULT');
+                H5A.write(aid, tid, 'Pa');
+                H5A.close(aid); H5S.close(sid); H5T.close(tid);
+                H5D.close(did); H5F.close(fid);
+                r = mestra.validate(path);
+                testCase.verifyEqual(r.errors, {'E19'}, ...
+                    strjoin(variant{1}, ' '));
+                testCase.verifyError(@() mestra.read(path), 'mestra:E19');
+            end
+        end
+
+        function aLinkAnywherePublicIsE40(testCase)
+        %aLinkAnywherePublicIsE40  E40 is a link that is not a hard
+        %   link anywhere in the public tree.  The validator called a
+        %   link at the root or in a support group W11, a link inside a
+        %   dictionary E41, and did not look inside /notes or a slot a
+        %   callable serves; a strict read then read three of the five.
+            for name = {'err_e40_notes', 'err_e40_slot_group', ...
+                        'err_e40_support', 'err_e40_root', ...
+                        'err_e40_dictionary'}
+                path = fullfile(corpusRoot(), name{1}, 'case.mes');
+                r = mestra.validate(path);
+                testCase.verifyEqual(r.errors, {'E40'}, name{1});
+                testCase.verifyError(@() mestra.read(path), ...
+                                     'mestra:E40', name{1});
+            end
+        end
+
+        function anUnusedGroupCategoryIsReportedAtItsKey(testCase)
+        %anUnusedGroupCategoryIsReportedAtItsKey  W07 is a group key
+        %   whose category table has an entry no row uses, so the
+        %   finding's path is the key's, which is where the other three
+        %   implementations put it.  A table may serve several keys.
+            r = mestra.validate(fullfile(corpusRoot(), 'warn_w07', ...
+                                         'case.mes'));
+            found = r.findings(strcmp({r.findings.id}, 'W07'));
+            testCase.verifyEqual({found.path}, {'/keys/member'});
+        end
+
+        function aFindingAboutAnIllegalNameStaysOnOneLine(testCase)
+        %aFindingAboutAnIllegalNameStaysOnOneLine  One finding per
+        %   line (conventions section 5), and a name that breaks E33
+        %   may hold a newline: it is printed as \x0a.
+            r = mestra.validate(fullfile(corpusRoot(), ...
+                                         'err_e33_newline', 'case.mes'));
+            text = mestra.report(r, 'String', true);
+            lines = strsplit(strtrim(text), newline);
+            testCase.verifyEqual(numel(lines), 2, text);
+            testCase.verifyTrue(startsWith(lines{1}, ...
+                'E33 /keys/mach\x0a: '), lines{1});
+        end
+
+        function aRowCountAgainstRowSupportIsE16(testCase)
+        %aRowCountAgainstRowSupportIsE16  E16 covers /row_support's
+        %   own length, and in an unaligned file a row-varying slot's
+        %   length against the rows /row_support puts on its support.
+        %   Neither was checked, and the read returned both files.
+            for name = {'err_e16_row_support', 'err_e16_support_rows'}
+                path = fullfile(corpusRoot(), name{1}, 'case.mes');
+                r = mestra.validate(path);
+                testCase.verifyTrue(ismember('E16', r.errors), name{1});
+                testCase.verifyError(@() mestra.read(path), 'mestra:E16', ...
+                                     name{1});
+            end
+        end
+
+        function anUnknownSourceOnAGroupIsE36AndReads(testCase)
+        %anUnknownSourceOnAGroupIsE36AndReads  E30 is a slot whose
+        %   source says data stored as a group; a source that is
+        %   neither word is E36, which is semantic and does not stop a
+        %   read.  The reader called every group not served by a
+        %   callable E30 and refused the file.
+            path = fullfile(corpusRoot(), 'err_e36_group', 'case.mes');
+            testCase.verifyEqual(mestra.validate(path).errors, {'E36'});
+            d = mestra.read(path);
+            testCase.verifyEqual(d.scalar('cl').source, 'row=99');
+        end
+
+        function aDatasetInNotesIsPublic(testCase)
+        %aDatasetInNotesIsPublic  /notes is public, so a dataset there
+        %   with no dimension scale is E25 and a strict read refuses
+        %   it.  Neither the validator nor the reader looked.
+            path = fullfile(corpusRoot(), 'err_e25_notes_dataset', ...
+                            'case.mes');
+            testCase.verifyEqual(mestra.validate(path).errors, {'E25'});
+            testCase.verifyError(@() mestra.read(path), 'mestra:E25');
+        end
+
+        function aSupportWithoutItsKindIsE39Alone(testCase)
+        %aSupportWithoutItsKindIsE39Alone  No rule that depends on the
+        %   kind is decided for a support that does not say it; this
+        %   one drew E08 and E38 beside the E39.
+            path = [tempname() '.mes'];
+            cleanup = onCleanup( ...
+                @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+            copyfile(fullfile(corpusRoot(), 'mesh_two_rows', 'case.mes'), ...
+                     path);
+            fileattrib(path, '+w');
+            fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+            gid = H5G.open(fid, '/supports/s0');
+            H5A.delete(gid, 'kind');
+            H5G.close(gid); H5F.close(fid);
+            testCase.verifyEqual(mestra.validate(path).errors, {'E39'});
+        end
+
+        function validUtf8IsALimitNotAFault(testCase)
+        %validUtf8IsALimitNotAFault  MATLAB's interface decodes a
+        %   non-ASCII fixed-length string before this package sees it,
+        %   so the bytes cannot be checked: that is this reader's limit
+        %   (E41), said plainly.  It used to check what uint8 made of
+        %   the decoded text and report E26 for valid UTF-8 ("Omega"
+        %   with a capital omega, "ss0" with an eszett), and then E10
+        %   for every id held against the table it had not read.
+            path = fullfile(fileparts(mfilename('fullpath')), 'hostile', ...
+                            'cases', 'utf8_strings.mes');
+            r = mestra.validate(path);
+            testCase.verifyEqual(r.errors, {'E41'});
+            testCase.verifyError(@() mestra.read(path), 'mestra:E41');
         end
     end
 

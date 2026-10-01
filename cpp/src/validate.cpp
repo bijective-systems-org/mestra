@@ -201,6 +201,16 @@ class Validator {
     r_->warnings.push_back({id, where, message});
   }
 
+  // E40 for every member of a public group whose members this pass
+  // does not otherwise visit: /notes, which holds attributes, and a
+  // slot served by a callable, which is a group holding none.  A link
+  // there is in the public tree as much as one under /keys is.
+  void links_in(const std::string& group) {
+    for (const Member& m : f_.members(group)) {
+      if (m.kind != internal::LinkKind::Hard) usable(group, m);
+    }
+  }
+
   // W10: a units string the parser cannot read.  A `units` that is not
   // a string at all is E19, drawn by check_attribute_encodings, and is
   // not also a string that does not parse.
@@ -405,6 +415,17 @@ Axes Validator::axes_of(const std::string& path, const DsetInfo& info,
                   ? "axis " + axis + " has no dimension scale attached"
                   : "axis " + axis +
                         " has more than one dimension scale attached");
+      }
+      a.logical.push_back(std::string());
+    } else if (attached.front().empty()) {
+      // One reference, to an object this file gives no name: a scale
+      // whose link was deleted after it was attached.  The axis has
+      // no dimension a reader can name.
+      if (report_e25) {
+        error("E25", path,
+              "axis " + internal::format_i64(static_cast<std::int64_t>(i)) +
+                  " is attached to an object that is not a dimension "
+                  "scale of this file");
       }
       a.logical.push_back(std::string());
     } else {
@@ -790,6 +811,7 @@ void Validator::root() {
   // at all, which section 29 requires.
   if (f_.is_group("/notes")) {
     check_attribute_encodings("/notes", f_.attributes("/notes"));
+    links_in("/notes");
   }
 
   if (f_.is_dataset("/row")) {
@@ -823,12 +845,16 @@ void Validator::categories() {
       error("E33", p,
             "\"" + m.name + "\" begins with the reserved prefix mestra_");
     }
-    if (info.type.klass != H5T_STRING) {
+    // A table of the wrong dtype is E20, and is still a public dataset
+    // the byte-level rules hold for: its scale and its storage are
+    // checked below whatever it holds.
+    const bool is_text = info.type.klass == H5T_STRING;
+    if (!is_text) {
       error("E20", p, "a category table that is not a string dataset");
-      return;
+    } else {
+      check_string_dataset(p, info, true);
+      category_tables_[m.name] = texts(p);
     }
-    check_string_dataset(p, info, true);
-    category_tables_[m.name] = texts(p);
     axes_of(p, info, true);
     if (!info.scales.empty() && info.scales[0].size() == 1 &&
         info.scales[0].front() != "category_" + m.name) {
@@ -849,6 +875,10 @@ struct KeyInfo {
   std::string category;
   std::string trajectory_group;
   DType dtype = DType::Float64;
+  // False when the stored dtype is not one section 19 allows for the
+  // role (E20): the values are then not read as ids, and E10 and W07,
+  // which are about ids, have nothing to say.
+  bool dtype_allowed = true;
   std::vector<double> f64;
   std::vector<std::int64_t> i64;
   bool has_lower = false;
@@ -949,6 +979,7 @@ void Validator::keys() {
         error("E20", p,
               "the dtype is not one section 19 allows for role " + k.role);
       }
+      k.dtype_allowed = allowed;
     }
 
     const RawAttr* lower = find(attrs, "lower");
@@ -1034,6 +1065,8 @@ void Validator::keys() {
       } else if (unread("/categories/" + k.category)) {
         // The table is E41 and its entries were never read, so
         // nothing here can be said about the ids in this column.
+      } else if (!k.dtype_allowed) {
+        // E20 already: the column is not category ids.
       } else {
         const std::int64_t n = static_cast<std::int64_t>(it->second.size());
         bool outside = false;
@@ -1191,6 +1224,7 @@ void Validator::scalars() {
     if (!usable("/scalars", m)) continue;
     const std::string p = "/scalars/" + m.name;
     guarded(p, [&] {
+    if (m.is_group) links_in(p);
     const std::vector<RawAttr> attrs = f_.attributes(p);
     check_attribute_encodings(p, attrs);
     if (!internal::legal_netcdf_name(m.name)) {
@@ -1551,6 +1585,7 @@ void Validator::supports() {
     }
     if (has_coordinates) {
       const std::string cp = sp + "/coordinates";
+      if (f_.is_group(cp)) guarded(cp, [&] { links_in(cp); });
       guarded(cp, [&] { slot(cp, kind, n_nodes, n_cells, index, true); });
     }
     for (int which = 0; which < 2; ++which) {
@@ -1559,6 +1594,7 @@ void Validator::supports() {
       for (const Member& a : f_.members(gp)) {
         if (!usable(gp, a)) continue;
         const std::string ap = gp + "/" + a.name;
+        if (a.is_group) guarded(ap, [&] { links_in(ap); });
         guarded(ap, [&] { slot(ap, kind, n_nodes, n_cells, index, false); });
       }
     }
@@ -1697,8 +1733,22 @@ void Validator::slot(const std::string& path,
   if (components_attr == nullptr) {
     error("E31", path, "an array slot with no `components`");
   }
+  // Whether there is a number to compare is its own fact: a stored -1
+  // is a count no axis has, not the absence of one.
+  const bool has_components =
+      components_attr != nullptr &&
+      components_attr->value.kind() == AttrValue::Kind::Int;
   const std::int64_t components =
-      components_attr != nullptr ? components_attr->value.as_int() : -1;
+      has_components ? components_attr->value.as_int() : 0;
+
+  // Section 5 names three values of `varies`, and no leading dimension
+  // agrees with any other word.
+  if (has_varies && varies != "none" && varies != "row" &&
+      varies.compare(0, 6, "group:") != 0) {
+    error("E04", path,
+          "`varies` is none, row or group:<k>, and this is \"" + varies +
+              "\"");
+  }
 
   if (is_coordinates && support_kind == "axis" && has_varies &&
       varies != "none") {
@@ -1790,7 +1840,7 @@ void Validator::slot(const std::string& path,
   }
 
   const int comp_axis = axes.index_of("component");
-  if (comp_axis >= 0 && components >= 0 &&
+  if (comp_axis >= 0 && has_components &&
       static_cast<std::int64_t>(
           axes.extent[static_cast<std::size_t>(comp_axis)]) != components) {
     error("E31", path,
@@ -1832,8 +1882,22 @@ void Validator::slot(const std::string& path,
           "slot must have");
   }
 
+  // Section 23: the row count in the chunk default is the length of
+  // the row dimension the leading axis is attached to, not the number
+  // of rows /row_support puts on the support -- a dataset that
+  // disagrees with that is E16, and its chunk is still judged against
+  // the dimension.
+  std::size_t chunk_rows = want_rows;
+  if (row_leading && !info.scale_paths.empty() &&
+      info.scale_paths[0].size() == 1 &&
+      f_.is_dataset(info.scale_paths[0].front())) {
+    const DsetInfo scale = f_.dataset_info(info.scale_paths[0].front());
+    if (scale.shape.size() == 1) {
+      chunk_rows = static_cast<std::size_t>(scale.shape[0]);
+    }
+  }
   check_dataset_storage(path, info, row_leading,
-                        row_leading ? want_rows : kNoChunkCheck);
+                        row_leading ? chunk_rows : kNoChunkCheck);
 
   if ((role == "field" || role == "derived") && dtype_ok &&
       dtype == DType::Float64) {

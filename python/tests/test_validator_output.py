@@ -164,3 +164,32 @@ def test_two_arrays_of_one_role_at_one_location_are_still_e03():
     mestra.compute_weights(support, "node")
     mestra.compute_weights(support, "node", name="lumped")
     assert "E03" in mestra.validate(ds).error_ids
+
+
+def test_a_finding_about_an_illegal_name_stays_on_one_line():
+    """Every tool prints one finding per line (conventions section
+    5), and a name that breaks E33 may hold a newline; it is written
+    as \\x0a rather than ending the line."""
+    report = mestra.validate(corpus.case_path("err_e33_newline"))
+    line = str(report.errors[0])
+    assert "\n" not in line
+    assert line.startswith("E33 /keys/mach\\x0a: ")
+
+
+def test_an_illegal_dictionary_key_is_one_finding_at_its_group():
+    """One finding per rule per object (conventions section 5). An
+    attribute's name is about the object that carries it, as the other
+    three implementations report it; the dictionary check also
+    reported it at a path naming the attribute, which is no object."""
+    report = mestra.validate(corpus.case_path("err_e33_dictionary"))
+    assert [(f.rule, f.where) for f in report.errors] == [
+        ("E33", "/callables/m1/outputs/cl")]
+
+
+def test_a_wrong_node_count_is_reported_at_the_offsets():
+    """E22 is decided from cell_offsets, and C++ and Julia report it
+    there; Python reported it at the support and MATLAB at the
+    connectivity, so one file gave one rule at three paths."""
+    report = mestra.validate(corpus.case_path("err_e22"))
+    assert [(f.rule, f.where) for f in report.errors] == [
+        ("E22", "/supports/s0/cell_offsets")]

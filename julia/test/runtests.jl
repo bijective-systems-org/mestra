@@ -1049,6 +1049,85 @@ end
     end
 end
 
+@testset "byte order is part of the encoding (sections 18, 19 and 25)" begin
+    # Section 18 names little-endian types for every number and
+    # section 19 stores every numeric dataset little-endian.  A check
+    # of class and size alone passed a big-endian file, and the
+    # attribute was then decoded as if it were native: an n_cells of 2
+    # came back as 2^57.
+    big(name) = HDF5.Datatype(HDF5.API.h5t_copy(name))
+    path = joinpath(SCRATCH, "n_cells_big_endian.mes")
+    cp(case_file("mesh_two_rows"), path; force = true)
+    chmod(path, 0o644)
+    HDF5.h5open(path, "r+") do f
+        s = f["supports/s0"]
+        HDF5.delete_attribute(s, "n_cells")
+        a = HDF5.create_attribute(s, "n_cells",
+                                  big(HDF5.API.H5T_STD_I64BE),
+                                  HDF5.dataspace(()))
+        HDF5.write_attribute(a, HDF5.datatype(Int64), Ref(Int64(2)))
+        close(a)
+    end
+    r = Mestra.validate(path)
+    @test r.errors == ["E19"]
+    e = refusal(() -> Mestra.read(path))
+    @test e !== nothing && e.rule == "E19"
+    @test Mestra.read(path; strict = false).supports[1].n_cells == 2
+
+    # A big-endian dataset is E20 and nothing else: a semantic rule,
+    # so the file still reads, and the values are the ones it holds.
+    path = case_file("err_e20_big_endian")
+    @test Mestra.validate(path).errors == ["E20"]
+    ds = Mestra.read(path; lazy = false)
+    @test vec(Mestra.raw_data(ds.scalars["cl"])) == [0.25, 0.55]
+end
+
+@testset "a finding about an illegal name stays on one line (conventions 5)" begin
+    f = Mestra.validate(case_file("err_e33_newline")).findings[1]
+    line = sprint(show, f)
+    @test !occursin('\n', line)
+    @test startswith(line, "E33 /keys/mach\\x0a: ")
+end
+
+@testset "a row count disagreeing with /row_support is E16 (section 22)" begin
+    # E16 covers /row_support's own length, and in an unaligned file a
+    # row-varying slot's length against the rows /row_support puts on
+    # its support.  A structural pass did not read the column, so the
+    # first went unreported and the read returned both files.
+    for name in ("err_e16_row_support", "err_e16_support_rows")
+        @test "E16" in Mestra.validate(case_file(name)).errors
+        e = refusal(() -> Mestra.read(case_file(name)))
+        @test e !== nothing && e.rule == "E16"
+    end
+end
+
+@testset "a support without its kind is E39 alone (section 14)" begin
+    # No rule that depends on the kind is decided for a support that
+    # does not say it; this one was taken for something and drew E03,
+    # E08 and E38 beside the E39.
+    path = joinpath(SCRATCH, "no_kind.mes")
+    cp(case_file("mesh_two_rows"), path; force = true)
+    chmod(path, 0o644)
+    HDF5.h5open(path, "r+") do f
+        HDF5.delete_attribute(f["supports/s0"], "kind")
+    end
+    @test Mestra.validate(path).errors == ["E39"]
+    @test Mestra.validate(case_file("err_e39_kind")).errors == ["E39"]
+end
+
+@testset "a link anywhere in the public tree is E40 (sections 14 and 29)" begin
+    # The validator met links only where it walked members for its own
+    # reasons, which left out /notes and the group a callable slot is,
+    # and a strict read then read those files without a word.
+    for name in ("err_e40_notes", "err_e40_slot_group", "err_e40_support",
+                 "err_e40_root", "err_e40_dictionary")
+        path = case_file(name)
+        @test Mestra.validate(path).errors == ["E40"]
+        e = refusal(() -> Mestra.read(path))
+        @test e !== nothing && e.rule == "E40"
+    end
+end
+
 @testset "a conforming file carrying /private is accepted (sections 12, 14, 29)" begin
     # Section 14, of the byte-level rules of sections 18 to 25: "They
     # are checked on the public objects only.  `/private` is not

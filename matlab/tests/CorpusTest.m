@@ -277,7 +277,13 @@ classdef CorpusTest < matlab.unittest.TestCase
                 end
                 full = mestra.read(CorpusTest.caseFile(caseName));
                 whole = CorpusTest.slotByPath(full, found(i).path);
-                n = size(whole.values, numel(whole.dims));
+                % A key or a scalar is a row vector here, so its row
+                % count is its length and not its extent along dims.
+                if isscalar(whole.dims)
+                    n = numel(whole.values);
+                else
+                    n = size(whole.values, numel(whole.dims));
+                end
                 if n == 0, continue, end
                 part = d.readRows(found(i).path, [1 1]);
                 subs = repmat({':'}, 1, numel(whole.dims));

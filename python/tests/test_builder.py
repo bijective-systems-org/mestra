@@ -698,3 +698,14 @@ def test_units_that_are_not_text_are_refused(tmp_path):
     assert caught.value.rule == "E19"
     assert "/scalars/cl" in str(caught.value)
     assert not os.path.exists(path)
+
+
+def test_a_name_ending_in_a_newline_is_refused():
+    """A legal name is built from letters, digits, underscore, hyphen,
+    "." and "+" (section 18). The check matched with `$`, which also
+    matches before a final newline, so "mach\\n" was accepted by the
+    builder and by the validator."""
+    ds = mestra.Dataset(writer="test", created="2026-10-01T00:00:00Z")
+    with pytest.raises(mestra.MestraError) as caught:
+        ds.add_key("mach\n", [0.4], role="condition", units="1")
+    assert caught.value.rule == "E33"

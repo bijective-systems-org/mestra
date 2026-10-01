@@ -129,6 +129,27 @@ function tf = followable(ctx, gid, name, path)
     end
 end
 
+function slotGroupDatasets(ctx, gid, path)
+%slotGroupDatasets  A dataset inside a slot a callable serves is a
+%   public dataset like any other, so the byte-level rules hold for it.
+    for name = mestra.internal.H5.children(gid)
+        if strcmp(mestra.internal.H5.childType(gid, name{1}), 'dataset')
+            guard(ctx, [path '/' name{1}], @() checkUnknownDataset( ...
+                ctx, gid, name{1}, [path '/' name{1}]));
+        end
+    end
+end
+
+function linksIn(ctx, gid, path)
+%linksIn  E40 for every member of a public group whose members are not
+%   otherwise visited: /notes, which holds attributes, and a slot a
+%   callable serves, which is a group holding nothing.  A link there
+%   is in the public tree as much as one under /keys.
+    for name = mestra.internal.H5.children(gid)
+        followable(ctx, gid, name{1}, [path '/' name{1}]);
+    end
+end
+
 % ===================================================== the vocabulary
 
 function names = keyRoles()
@@ -189,6 +210,9 @@ function ctx = gather(ctx)
 
     ctx.categories = containers.Map('KeyType', 'char', 'ValueType', 'any');
     ctx.categoryNames = {};
+    % Tables whose entries this binding could not recover, so that no
+    % value is held against an empty stand-in for them.
+    ctx.unreadTables = {};
     if mestra.internal.Reader.hasGroup(ctx.fid, 'categories')
         g = H5.openGroup(ctx.fid, 'categories');
         for name = H5.children(g)
@@ -202,6 +226,7 @@ function ctx = gather(ctx)
                     ctx.categories(name{1}) = H5.readData(did, info);
                 end
             catch
+                ctx.unreadTables{end + 1} = name{1};
                 % The table cannot be read; checkCategories says so and
                 % every value checked against it is simply not checked.
             end
@@ -245,10 +270,18 @@ function ctx = gather(ctx)
         H5G.close(g);
     end
 
+    % A support is a group reached by a hard link; anything else under
+    % /supports is reported where it is met (E40, E41) and is not a
+    % support, so it neither counts for E37 nor takes a place in the
+    % support order of section 22.
     ctx.supportNames = {};
+    ctx.supportMembers = {};
     if mestra.internal.Reader.hasGroup(ctx.fid, 'supports')
         g = H5.openGroup(ctx.fid, 'supports');
-        ctx.supportNames = H5.children(g);
+        ctx.supportMembers = H5.children(g);
+        isGroup = cellfun(@(n) strcmp(H5.childType(g, n), 'group'), ...
+                          ctx.supportMembers);
+        ctx.supportNames = ctx.supportMembers(isGroup);
         H5G.close(g);
     end
 
@@ -367,7 +400,7 @@ function checkOneCategory(ctx, g, name, path)
         checkStringDataset(ctx, did, info, path);
     end
     checkAttrEncodings(ctx, did, path);
-    checkScales(ctx, did, info, path);
+    checkScales(ctx, did, info, path, {['category_' name]});
 end
 
 function checkStringDataset(ctx, did, info, path)
@@ -549,6 +582,7 @@ function checkKeyValues(ctx, did, path, role, values)
     rep = ctx.rep;
     if isempty(values), return, end
     if ismember(role, {'categorical', 'group', 'split', 'status'})
+        if ismember(strAttr(did, 'category'), ctx.unreadTables), return, end
         table = categoryEntries(ctx, strAttr(did, 'category'));
         if ~isempty(table) || H5.hasAttr(did, 'category')
             n = numel(table);
@@ -680,11 +714,14 @@ function checkUnusedCategories(ctx)
     for i = 1:numel(ctx.groupKeys)
         k = findKey(ctx, ctx.groupKeys{i}, 'name');
         if isempty(k) || isempty(k.category), continue, end
+        if ismember(k.category, ctx.unreadTables), continue, end
         table = categoryEntries(ctx, k.category);
         used = unique(double(k.values));
         for c = 0:numel(table) - 1
             if ~any(used == c)
-                ctx.rep.add('W07', ['/categories/' k.category], ...
+                % W07 is about the group key, so it is reported at the
+                % key, as the other three implementations report it.
+                ctx.rep.add('W07', ['/keys/' k.name], ...
                     'entry %d ("%s") is used by no row', c, table{c + 1});
             end
         end
@@ -719,6 +756,10 @@ function checkOneScalar(ctx, g, name, path)
         ctx.rep.add('E41', path, ...
             'a scalar is a dataset or a group, and this is neither, so there is nothing here to read');
         return
+    end
+    if isGroup
+        linksIn(ctx, oid, path);
+        slotGroupDatasets(ctx, oid, path);
     end
     checkAttrEncodings(ctx, oid, path);
     checkKnownAttrs(ctx, oid, path, ...
@@ -800,6 +841,15 @@ function checkRowSupport(ctx)
             info.type);
     end
     checkScales(ctx, did, info, '/row_support');
+    % E16 covers /row_support as it covers a key: one value per row.
+    if numel(info.dims) ~= 1
+        ctx.rep.add('E16', '/row_support', ...
+            '/row_support has one dimension, row, and this has %d', ...
+            numel(info.dims));
+    elseif info.dims(1) ~= ctx.rowCount
+        ctx.rep.add('E16', '/row_support', ...
+            '%d values in a file of %d rows', info.dims(1), ctx.rowCount);
+    end
     checkChunking(ctx, did, info, '/row_support', ctx.rowCount);
     n = numel(ctx.supportNames);
     bad = ctx.rowSupport(ctx.rowSupport < 0 | ctx.rowSupport >= n);
@@ -823,17 +873,19 @@ function checkSupports(ctx)
     if ~mestra.internal.Reader.hasGroup(ctx.fid, 'supports'), return, end
     g = H5.openGroup(ctx.fid, 'supports');
     closer = onCleanup(@() H5G.close(g)); %#ok<NASGU>
-    for i = 1:numel(ctx.supportNames)
-        name = ctx.supportNames{i};
+    for i = 1:numel(ctx.supportMembers)
+        name = ctx.supportMembers{i};
         path = ['/supports/' name];
         checkName(ctx, name, path);
         if ~followable(ctx, g, name, path), continue, end
         if ~strcmp(H5.childType(g, name), 'group')
             ctx.rep.add('E41', path, ...
                 'a support is a group, and this is not one, so there is no support here to read');
+            % Still a public dataset, so the byte-level rules hold.
+            guard(ctx, path, @() checkUnknownDataset(ctx, g, name, path));
             continue
         end
-        index = i - 1;
+        index = find(strcmp(ctx.supportNames, name), 1) - 1;
         guard(ctx, path, @() checkOneSupport(ctx, g, name, index));
     end
 end
@@ -861,13 +913,16 @@ function checkOneSupport(ctx, parent, name, index)
     has = @(n) H5.exists(sid, n);
     cellNames = {'cell_types', 'cell_offsets', 'cell_connectivity'};
     present = cellfun(has, cellNames);
+    % A support that does not say what kind it is is E39, and no rule
+    % that depends on the kind is decided for it (E03, E08, E38).
+    knownKind = any(strcmp(kind, {'mesh', 'axis', 'none'}));
     if strcmp(kind, 'mesh')
         if ~all(present)
             rep.add('E38', path, ...
                 'a mesh support is missing %s', ...
                 strjoin(cellNames(~present), ', '));
         end
-    elseif any(present) || has('cell')
+    elseif knownKind && (any(present) || has('cell'))
         rep.add('E38', path, ...
             'a support of kind %s carries cell data', kind);
     end
@@ -912,7 +967,7 @@ function checkOneSupport(ctx, parent, name, index)
         H5D.close(did);
     end
     stored = strAttr(sid, 'support_id');
-    if ~isempty(stored)
+    if ~isempty(stored) && knownKind
         try
             computed = mestra.supportId(record);
             if ~strcmp(computed, stored)
@@ -961,7 +1016,12 @@ function checkOneSupport(ctx, parent, name, index)
                         'node', 'cell', 'cell_plus_one', 'index', 'row'}];
     checked = [cellNames {'coordinates', 'node_arrays', 'cell_arrays'}];
     for nm = H5.children(sid)
-        if ~ismember(nm{1}, known)
+        if ~followable(ctx, sid, nm{1}, [path '/' nm{1}])
+            continue
+        end
+        % W11 is an attribute or a group (sections 14 and 28); a
+        % dataset this version does not know is checked below instead.
+        if ~ismember(nm{1}, known) && strcmp(H5.childType(sid, nm{1}), 'group')
             rep.add('W11', [path '/' nm{1}], ...
                 'this reader does not know this object; it is ignored');
         end
@@ -996,6 +1056,7 @@ function checkUnknownDataset(ctx, gid, name, path)
     closer = onCleanup(@() H5D.close(did)); %#ok<NASGU>
     info = H5.dsetInfo(did);
     if info.isScale || isempty(info.dims), return, end
+    checkScales(ctx, did, info, path);
     leading = H5.scaleNames(did, 0, ctx.scales);
     if isempty(leading) || ~strcmp(leading(1).name, 'row'), return, end
     checkChunking(ctx, did, info, path, info.dims(1));
@@ -1040,7 +1101,10 @@ function checkCells(ctx, path, types, offsets, conn, nNodes, nCells)
                 'cell type %d is not in the table of section 20', types(i));
         end
     end
+    offsetsOk = true;
     if ~isempty(offsets)
+        offsetsOk = offsets(1) == 0 && ~any(diff(offsets) < 0) && ...
+                    offsets(end) == numel(conn);
         if offsets(1) ~= 0
             rep.add('E23', [path '/cell_offsets'], ...
                 'the first offset is %d and not 0', offsets(1));
@@ -1053,19 +1117,21 @@ function checkCells(ctx, path, types, offsets, conn, nNodes, nCells)
                 offsets(end), numel(conn));
         end
     end
-    if numel(offsets) == numel(types) + 1
+    % Node counts come from the offsets, so offsets that are E23 say
+    % nothing about them: E22 is decided on offsets that are sound.
+    if offsetsOk && numel(offsets) == numel(types) + 1
         for j = 1:numel(types)
             span = offsets(j + 1) - offsets(j);
             if ~table.isKey(types(j)), continue, end
             want = table(types(j));
             if want < 0
                 if span < 3
-                    rep.add('E22', [path '/cell_connectivity'], ...
+                    rep.add('E22', [path '/cell_offsets'], ...
                         ['polygon %d has %d nodes where 3 or more are ' ...
                          'needed'], j - 1, span);
                 end
             elseif span ~= want
-                rep.add('E22', [path '/cell_connectivity'], ...
+                rep.add('E22', [path '/cell_offsets'], ...
                     'cell %d has %d nodes where type %d takes %d', ...
                     j - 1, span, types(j), want);
             end
@@ -1093,6 +1159,10 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
         rep.add('E41', path, ...
             'a slot is a dataset or a group, and this is neither, so there is nothing here to read');
         return
+    end
+    if isGroup
+        linksIn(ctx, oid, path);
+        slotGroupDatasets(ctx, oid, path);
     end
     checkAttrEncodings(ctx, oid, path);
     checkKnownAttrs(ctx, oid, path, ...
@@ -1127,8 +1197,9 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
         rep.add('E13', path, ...
             'a derived array needs derived_from and recipe');
     end
+    % Present and false is no more a mark than absent (W06).
     if any(strcmp(role, {'weight', 'normal'})) && ...
-       ~H5.hasAttr(oid, 'recomputed')
+       ~isequal(double(numAttr(oid, 'recomputed')), 1)
         rep.add('W06', path, ...
             'a %s array does not say it was recomputed', role);
     end
@@ -1139,6 +1210,16 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
     end
     checkSource(ctx, oid, path, isGroup);
     checkStatistic(ctx, oid, path);
+
+    % ---- E04: section 5 names three values of varies, for a slot a
+    % callable serves as much as for one that holds data; an empty
+    % string is a value too, and not one of the three
+    if H5.hasAttr(oid, 'varies') && ...
+            ~any(strcmp(varies, {'none', 'row'})) && ...
+            ~strncmp(varies, 'group:', 6)
+        rep.add('E04', path, 'varies is "%s", not none, row or group:<k>', ...
+                varies);
+    end
 
     if isGroup
         H5G.close(oid);
@@ -1248,7 +1329,7 @@ end
 
 function checkLabelValues(ctx, oid, info, path)
     name = strAttr(oid, 'category');
-    if isempty(name), return, end
+    if isempty(name) || ismember(name, ctx.unreadTables), return, end
     table = categoryEntries(ctx, name);
     try
         values = double(mestra.internal.H5.readData(oid, info));
@@ -1306,12 +1387,61 @@ function checkOneCallable(ctx, g, name, path)
     if ~H5.hasAttr(cid, 'type')
         ctx.rep.add('E15', path, 'a callable group has no type');
     end
+    % `type` and `repr` are the container's attributes on this group,
+    % encoded as section 18 says; every other one is a dictionary entry
+    % and the codec's to judge.
+    found = mestra.internal.Attrs.findings(cid, {'type', 'repr'});
+    for i = 1:numel(found)
+        ctx.rep.add(found(i).id, path, '%s', found(i).message);
+    end
+    checkDictionaryScales(ctx, cid, path, 0);
     [~, problems] = mestra.internal.Codec.read(cid, true);
     for i = 1:numel(problems)
         if numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'U03 ')
             ctx.rep.add('E41', path, '%s', problems{i}(5:end));
+        elseif numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'E40 ')
+            ctx.rep.add('E40', path, '%s', problems{i}(5:end));
+        elseif numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'E25 ')
+            continue    % checkDictionaryScales reports it at the dataset
         else
             ctx.rep.add('E32', path, '%s', problems{i});
+        end
+    end
+end
+
+function checkDictionaryScales(ctx, gid, path, depth)
+%checkDictionaryScales  E25 and E33 over a callable's dictionary:
+%   section 21 names the scale on axis i of a dictionary dataset
+%   mestra_<dataset>_d<i>, so a scale of any other name is the wrong
+%   one even when it is a legal name somewhere else, and section 17
+%   holds a dictionary key to the netCDF-4 name rule (E33).
+    if depth > mestra.internal.Limits.get('maxDepth'), return, end
+    H5 = mestra.internal.H5;
+    for name = H5.publicAttrNames(gid)
+        if mestra.internal.Text.reserved(name{1}), continue, end
+        if depth == 0 && any(strcmp(name{1}, {'type', 'repr'})), continue, end
+        % An attribute's name is reported at the object carrying it.
+        checkName(ctx, name{1}, path);
+    end
+    for name = H5.children(gid)
+        if mestra.internal.Text.reserved(name{1}), continue, end
+        kind = H5.childType(gid, name{1});
+        sub = [path '/' name{1}];
+        checkName(ctx, name{1}, sub);
+        if strcmp(kind, 'group')
+            g = H5G.open(gid, name{1});
+            checkDictionaryScales(ctx, g, sub, depth + 1);
+            H5G.close(g);
+        elseif strcmp(kind, 'dataset')
+            did = H5D.open(gid, name{1});
+            info = H5.dsetInfo(did);
+            if ~info.isScale && ~isempty(info.dims)
+                wanted = arrayfun(@(i) sprintf('mestra_%s_d%d', ...
+                    name{1}, i - 1), 1:numel(info.dims), ...
+                    'UniformOutput', false);
+                guard(ctx, sub, @() checkScales(ctx, did, info, sub, wanted));
+            end
+            H5D.close(did);
         end
     end
 end
@@ -1441,7 +1571,7 @@ function checkDimensionScales(ctx)
     addresses = ctx.scales.keys();
     for i = 1:numel(addresses)
         s = ctx.scales(addresses{i});
-        if isPrivate(s.path), continue, end
+        if isPrivate(s.path) || inUnknownGroup(s.path), continue, end
         if bitand(s.order, want) ~= want
             ctx.rep.add('E42', s.path, ...
                 ['this dimension scale was created without attribute ' ...
@@ -1454,6 +1584,22 @@ function checkDimensionScales(ctx)
                 ['the dimension "%s" is unlimited; only `row`, ' ...
                  'file-level or support-local, may be'], s.name);
         end
+    end
+end
+
+function tf = inUnknownGroup(path)
+%inUnknownGroup  True for an object inside a group this version does not
+%   know, at the root or in a support: section 14 leaves it alone apart
+%   from W11, so the byte-level rules are not checked inside it.
+    parts = strsplit(path, '/');
+    parts = parts(~cellfun(@isempty, parts));
+    tf = false;
+    if numel(parts) >= 2 && ...
+            ~ismember(parts{1}, mestra.internal.Reader.ROOT_GROUPS)
+        tf = true;
+    elseif numel(parts) >= 4 && strcmp(parts{1}, 'supports') && ...
+            ~ismember(parts{3}, {'node_arrays', 'cell_arrays'})
+        tf = true;
     end
 end
 
@@ -1471,11 +1617,15 @@ function tf = dictionaryZeroAxis(path, len)
     tf = len == 0 && strncmp(path, '/callables/', 11);
 end
 
-function checkScales(ctx, did, info, path)
+function checkScales(ctx, did, info, path, wanted)
 %checkScales  E25 for every axis of a dataset.
 %   A dimension scale is not itself subject to this rule and carries
 %   no scale on its own axis (section 14), so this is called only on
-%   the datasets the format defines.
+%   the datasets the format defines.  WANTED, when given, is the one
+%   name section 21 allows on each axis, where the position decides
+%   it: category_<table> on a table, mestra_<dataset>_d<i> in a
+%   dictionary.
+    if nargin < 5, wanted = {}; end
     H5 = mestra.internal.H5;
     for axis = 1:numel(info.dims)
         found = H5.scaleNames(did, axis - 1, ctx.scales);
@@ -1505,6 +1655,11 @@ function checkScales(ctx, did, info, path)
             continue
         end
         why = scaleNameProblem(found(1).name, info.dims(axis));
+        if isempty(why) && numel(wanted) >= axis && ...
+                ~isempty(wanted{axis}) && ~strcmp(found(1).name, wanted{axis})
+            why = sprintf('the scale is "%s" where section 21 names "%s"', ...
+                          found(1).name, wanted{axis});
+        end
         if ~isempty(why)
             ctx.rep.add('E25', path, 'axis %d: %s', axis - 1, why);
         end
@@ -1648,6 +1803,17 @@ end
 function checkUnknown(ctx)
 %checkUnknown  W11 for a root attribute or group this version ignores.
     H5 = mestra.internal.H5;
+    if strcmp(H5.childType(ctx.root, 'notes'), 'group')
+        notes = H5G.open(ctx.root, 'notes');
+        linksIn(ctx, notes, '/notes');
+        % /notes is public: a dataset there is held to the byte-level
+        % rules as any public dataset is.
+        for name = H5.children(notes)
+            guard(ctx, ['/notes/' name{1}], @() checkUnknownDataset( ...
+                ctx, notes, name{1}, ['/notes/' name{1}]));
+        end
+        H5G.close(notes);
+    end
     known = mestra.internal.Reader.ROOT_ATTRS;
     for name = H5.publicAttrNames(ctx.root)
         if ~ismember(name{1}, known)
@@ -1657,6 +1823,9 @@ function checkUnknown(ctx)
         end
     end
     for name = H5.children(ctx.root)
+        if ~followable(ctx, ctx.root, name{1}, ['/' name{1}])
+            continue
+        end
         if ~mestra.internal.Reader.knownRootChild(ctx.root, name{1})
             ctx.rep.add('W11', ['/' name{1}], ...
                 'this reader does not know this object; it is ignored');

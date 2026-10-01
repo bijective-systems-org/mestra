@@ -418,6 +418,16 @@ class Writer {
                    support_rows);
       }
     }
+    // Groups this version does not know, put back as they came
+    // (section 28), as at the root.
+    for (const std::string& name : s.unknown_groups) {
+      const auto copy = s.unknown_group_copies.find(name);
+      if (copy != s.unknown_group_copies.end() && !copy->second.empty()) {
+        internal::restore_group(f_, sp + "/" + name, copy->second);
+      } else {
+        f_.make_group(sp + "/" + name);
+      }
+    }
   }
 
   void write_slot(const std::string& p, const ArraySlot& a,
@@ -485,8 +495,17 @@ class Writer {
     } else if (d_.container_groups.count("/private") != 0) {
       f_.make_group("/private");
     }
+    // A group this version does not know goes back as it came: its
+    // name is reported (W11) and nothing in it is interpreted, and a
+    // rewrite that kept the name and dropped the contents would lose
+    // them in silence.
     for (const std::string& name : d_.unknown_root_groups) {
-      f_.make_group("/" + name);
+      const auto copy = d_.unknown_root_copies.find(name);
+      if (copy != d_.unknown_root_copies.end() && !copy->second.empty()) {
+        internal::restore_group(f_, "/" + name, copy->second);
+      } else {
+        f_.make_group("/" + name);
+      }
     }
   }
 
@@ -544,7 +563,13 @@ void check_dataset_shapes(const Dataset& d) {
                                            ? "/node_arrays/"
                                            : "/cell_arrays/")) +
                                a->name;
-      const std::string want = a->varies == "none" ? axis : a->varies;
+      // A slot holding draws carries the draw axis first when nothing
+      // leads it (section 19: (row | group | -, [draw], node | cell,
+      // component)), so a shared set of draws starts with `draw`.
+      const bool draws = a->statistic.has_value() && *a->statistic == "draw";
+      const std::string want =
+          a->varies == "none" ? (draws ? std::string("draw") : axis)
+                              : a->varies;
       if (a->data.dims.front() != want) {
         throw Error(
             "E04",
@@ -638,6 +663,20 @@ void write(const Dataset& d, const std::string& path,
   internal::check_dataset_names(d);
   internal::check_dataset_shapes(d);
   check_destination(path);
+  // What a read had to leave out of a callable's dictionary would be
+  // dropped by a rewrite, so a checked write refuses rather than lose
+  // it in silence (conventions section 7).
+  if (options.check) {
+    for (const Finding& f : d.not_read) {
+      if (f.id == "E32") {
+        throw Error("E32", "\"" + path + "\" was not written: " + f.where +
+                               " " + f.message +
+                               ", so this dataset holds the dictionary "
+                               "without it; pass check = false to write "
+                               "it so");
+      }
+    }
+  }
   if (!options.check) {
     write_file(d, path);
     return;

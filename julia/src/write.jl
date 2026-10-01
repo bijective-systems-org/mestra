@@ -555,10 +555,10 @@ function write_support(parent, ds::Dataset, s::Support, scales,
     write_string_attr(g, "support_id", s.support_id)
 
     # Section 21: a support-local `row`, only in an unaligned file and
-    # only where the support carries an array that varies along it.
+    # only where the support carries an array that varies along it.  A
+    # slot a callable serves is such an array though it holds no data.
     if !ds.aligned
-        varies_row = any(x -> x.varies == "row" && !is_callable_slot(x),
-                         support_slots(s))
+        varies_row = any(x -> x.varies == "row", support_slots(s))
         varies_row && (local_scales["row"] =
             create_scale(g, "row", local_rows; unlimited = true))
     end
@@ -576,6 +576,9 @@ function write_support(parent, ds::Dataset, s::Support, scales,
         for n in sort(collect(Base.keys(s.cell_arrays)), by = codeunits)
             write_slot(ca, ds, s.cell_arrays[n], scales, local_scales, src)
         end
+    end
+    for x in s.extra_groups
+        restore_group(g, x)
     end
     return g
 end
@@ -602,11 +605,21 @@ function restore_group(parent, g::RawGroupCopy)
     pending = Tuple{HDF5.Dataset,String,Int}[]
     h = restore_into!(parent, g, "", made, pending)
     for (d, rel, axis) in pending
-        sc = get(made, rel, nothing)
+        sc = startswith(rel, "/") ? outside_scale(parent, rel) :
+             get(made, rel, nothing)
         sc === nothing && continue
         attach_scale!(d, sc, axis)
     end
     return h
+end
+
+"""A dimension scale outside a copied group, by its path in the file
+being written, or nothing when the rewrite did not write one there."""
+function outside_scale(parent, path::String)
+    f = HDF5.file(parent)
+    haskey(f, path) || return nothing
+    obj = f[path]
+    return obj isa HDF5.Dataset && is_scale(obj) ? obj : nothing
 end
 
 function restore_into!(parent, g::RawGroupCopy, base::String, made, pending)

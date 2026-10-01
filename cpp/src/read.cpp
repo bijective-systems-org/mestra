@@ -204,6 +204,10 @@ Dataset read_impl(const std::string& path, bool with_data) {
         if (m.name == "private") d.has_private = true;
       } else {
         d.unknown_root_groups.push_back(m.name);
+        if (with_data) {
+          d.unknown_root_copies[m.name] =
+              internal::capture_group(f, "/" + m.name);
+        }
       }
     }
   }
@@ -356,6 +360,10 @@ Dataset read_impl(const std::string& path, bool with_data) {
       if (!g.is_group) continue;
       if (!internal::known_support_group(g.name)) {
         s.unknown_groups.push_back(g.name);
+        if (with_data) {
+          s.unknown_group_copies[g.name] =
+              internal::capture_group(f, sp + "/" + g.name);
+        }
       }
     }
 
@@ -408,7 +416,9 @@ Dataset read_impl(const std::string& path, bool with_data) {
     c.repr = at.text("repr");
     // A callable's dictionary holds no field data; it is what a
     // reader needs to hand to `from_dict`, so it is read either way.
-    if (with_data) c.dict = internal::read_dict_group(f, p, true);
+    if (with_data) {
+      c.dict = internal::read_dict_group(f, p, true, 0, &d.not_read);
+    }
     d.callables.push_back(std::move(c));
   }
 
@@ -532,7 +542,7 @@ Dataset read(const std::string& path, const ReadOptions& options) {
     refuse("mestra::read", path, refused);
   }
   Dataset d = read_impl(path, true);
-  d.not_read = std::move(refused);
+  d.not_read.insert(d.not_read.begin(), refused.begin(), refused.end());
   return d;
 }
 

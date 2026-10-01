@@ -541,8 +541,23 @@ function read_support(ds::Dataset, g, name::String, idx::ScaleIndex,
             end
         end
     end
+    # A group this version does not know is copied, never interpreted,
+    # so that a rewrite puts it back (section 28).
+    for n in children
+        n in SUPPORT_GROUPS && continue
+        obj = hard_child(g, n)
+        obj isa HDF5.Group || continue
+        try
+            push!(s.extra_groups,
+                  snapshot_group(ds, obj, n, "$(base)/$(n)", 0, idx))
+        catch e
+            note!(ds, rule_of(e), "$(base)/$(n)", message_of(e))
+        end
+    end
     return s
 end
+
+const SUPPORT_GROUPS = ("node_arrays", "cell_arrays", "coordinates")
 
 # An object this reader does not own is copied, never interpreted.
 # The depth is capped because the file chooses it.
@@ -621,8 +636,11 @@ function copied_attachments(d::HDF5.Dataset, idx::Union{Nothing,ScaleIndex},
         axis <= naxes || break
         p = t[4]
         p === nothing && continue
-        startswith(p, prefix) || continue
-        out[axis] = p[(length(prefix) + 1):end]
+        # A scale inside the copied subtree is named by its path within
+        # it; one outside -- a support's `node`, the file's `row` -- by
+        # its path in the file, which the rewrite has written too.
+        out[axis] = startswith(p, prefix) ? p[(length(prefix) + 1):end] :
+                    String(p)
     end
     return out
 end

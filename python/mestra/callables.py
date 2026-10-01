@@ -230,7 +230,14 @@ def callable_from_dict(kind: str, d: Mapping[str, Any],
     known = _REGISTRY.get(kind)
     if known is None:
         return OpaqueCallable(kind, d, repr_line)
-    return known.from_dict(d)
+    made = known.from_dict(d)
+    # The repr line is the producer's (section 10), and a rewrite puts
+    # back the one it read, or none when the file had none, rather
+    # than the one this class would make up.
+    if hasattr(made, "_repr"):
+        made._repr = repr_line
+        made._repr_read = True
+    return made
 
 
 class OpaqueCallable:
@@ -371,8 +378,14 @@ class Affine(Callable):
 
     def to_dict(self) -> dict[str, Any]:
         """The dictionary of section 27, and nothing else."""
+        # Section 27 makes `keys` a string dataset. An empty list says
+        # nothing about its elements and section 25 writes it as
+        # float64, so a callable of no keys -- a constant -- hands the
+        # codec an empty string array instead.
+        keys: Any = (list(self.keys) if self.keys
+                     else np.zeros(0, dtype=np.str_))
         return {
-            "keys": list(self.keys),
+            "keys": keys,
             "outputs": {name: {key: entry[key]
                                for key in ("A", "b", "shape",
                                            "uncertainty", "level",

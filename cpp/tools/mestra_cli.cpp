@@ -108,9 +108,26 @@ std::vector<std::size_t> subscripts(const ProbeIndex& p) {
 // tool.  A failure no rule of section 14 covers carries no identifier
 // and is printed as "! ", so that a file is never reported clean
 // because the thing wrong with it has no name.
+// A control character, which an illegal name can hold, is written as
+// \xHH, so that a finding stays on its one line.
+std::string one_line(const std::string& text) {
+  std::string out;
+  for (const char c : text) {
+    const unsigned char u = static_cast<unsigned char>(c);
+    if (u < 0x20 || u == 0x7f) {
+      char buf[5];
+      std::snprintf(buf, sizeof buf, "\\x%02x", u);
+      out += buf;
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
 void print_finding(const mestra::Finding& f) {
-  std::cout << (f.id.empty() ? std::string("!") : f.id) << " " << f.where
-            << ": " << f.message << "\n";
+  std::cout << (f.id.empty() ? std::string("!") : f.id) << " "
+            << one_line(f.where) << ": " << one_line(f.message) << "\n";
 }
 
 void print_report(const mestra::Report& r) {
@@ -129,7 +146,8 @@ void print_ids(const mestra::Report& r) {
   }
   for (const mestra::Finding& f : r.errors) {
     if (f.id.empty()) {
-      std::cout << "! " << f.where << ": " << f.message << "\n";
+      std::cout << "! " << one_line(f.where) << ": " << one_line(f.message)
+                << "\n";
     }
   }
 }

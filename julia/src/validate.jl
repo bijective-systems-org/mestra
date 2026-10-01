@@ -395,7 +395,7 @@ function check_attr_types!(v::Validator, path::String,
             end
         elseif at.ti.class === :int
             if expected === :bool
-                if at.ti.size != 1
+                if at.ti.size != 1 || !at.ti.signed
                     report!(v, "E19", path, "boolean `$(name)` is not int8")
                 elseif !(at.value isa Bool)
                     # Section 18: "value 0 for false and 1 for true.
@@ -410,15 +410,17 @@ function check_attr_types!(v::Validator, path::String,
                         "and no other")
                 end
             elseif expected === :int
-                (at.ti.size == 8 && at.ti.signed) ||
-                    report!(v, "E19", path, "integer `$(name)` is not int64")
+                (at.ti.size == 8 && at.ti.signed && at.ti.little) ||
+                    report!(v, "E19", path,
+                            "integer `$(name)` is not little-endian int64")
             else
                 report!(v, "E19", path, "`$(name)` is an integer")
             end
         elseif at.ti.class === :float
             if expected === :float
-                if at.ti.size != 8
-                    report!(v, "E19", path, "float `$(name)` is not float64")
+                if at.ti.size != 8 || !at.ti.little
+                    report!(v, "E19", path,
+                            "float `$(name)` is not little-endian float64")
                 elseif at.value isa Real && !isfinite(at.value)
                     # Section 18: an attribute that declares a bound, a
                     # level or a quantile must be finite, and the four
@@ -648,12 +650,19 @@ function check_keys!(v::Validator)
         end
         role = get(v.keyroles, name, nothing)
         if role === nothing
-            report!(v, "E02", path, "no `role` attribute")
-            v.missing_public = true
+            # A role stored in the wrong encoding is E19's to report,
+            # and it is not missing.
+            if !haskey(a, "role")
+                report!(v, "E02", path, "no `role` attribute")
+                v.missing_public = true
+            end
             return
         end
         if !(Symbol(role) in KEY_ROLES)
             report!(v, "E02", path, "`$(role)` is not a role of section 3")
+            # E18 goes beside any E02, as the other implementations
+            # read section 14, and not only beside a missing role.
+            v.missing_public = true
             return
         end
         kdims, _ = disk_shape(d)
@@ -706,13 +715,15 @@ end
 
 function check_key_dtype!(v::Validator, path, role, ti::TypeInfo)
     if role in ("design", "condition", "time")
-        (ti.class === :float && ti.size == 8) || report!(v, "E20", path,
-            "a $(role) key must be float64")
+        (ti.class === :float && ti.size == 8 && ti.little) ||
+            report!(v, "E20", path,
+                    "a $(role) key must be little-endian float64")
     elseif role in ("categorical", "group", "split", "status")
-        (ti.class === :int && ti.signed && ti.size in (4, 8)) ||
-            report!(v, "E20", path, "a $(role) key must be int32 or int64")
+        (ti.class === :int && ti.signed && ti.size in (4, 8) && ti.little) ||
+            report!(v, "E20", path,
+                    "a $(role) key must be little-endian int32 or int64")
     elseif role == "id"
-        ok = (ti.class === :int && ti.signed && ti.size == 8) ||
+        ok = (ti.class === :int && ti.signed && ti.size == 8 && ti.little) ||
              (ti.class === :string && !ti.vlen)
         ok || report!(v, "E20", path,
             "an id key must be int64 or a fixed-length UTF-8 string")
@@ -897,6 +908,9 @@ function check_scalars!(v::Validator)
         obj = vopen!(v, g, name, "/scalars/$(name)")
         obj === nothing && continue
         path = "/scalars/$(name)"
+        # A slot a callable serves is a group, and a link inside it is
+        # in the public tree like any other (E40).
+        obj isa HDF5.Group && vchildren!(v, obj, path)
         guard!(v, path) do
         a = own_attrs(obj)
         check_attr_types!(v, path, a)
@@ -912,8 +926,9 @@ function check_scalars!(v::Validator)
         check_source!(v, path, obj, a)
         if obj isa HDF5.Dataset
             ti = type_info(HDF5.datatype(obj))
-            (ti.class === :float && ti.size == 8) || report!(v, "E20", path,
-                "a scalar must be float64")
+            (ti.class === :float && ti.size == 8 && ti.little) ||
+                report!(v, "E20", path,
+                        "a scalar must be little-endian float64")
             cdims, _ = disk_shape(obj)
             length(cdims) == 1 || report!(v, "E16", path,
                 "a dataset under /scalars has exactly one dimension, " *
@@ -1020,11 +1035,24 @@ function check_row_support!(v::Validator)
     d = rsobj
     guard!(v, "/row_support") do
         ti = type_info(HDF5.datatype(d))
-        (ti.class === :int && ti.signed && ti.size == 4) ||
-            report!(v, "E20", "/row_support", "/row_support must be int32")
-        v.structural ||
-            (v.row_support = Int.(vec(safe_read(d;
-                                      max_elements = v.max_elements))))
+        (ti.class === :int && ti.signed && ti.size == 4 && ti.little) ||
+            report!(v, "E20", "/row_support",
+                    "/row_support must be little-endian int32")
+        # E16 covers /row_support as it covers a key column: one value
+        # per row of the file, in one dimension.
+        cdims, _ = disk_shape(d)
+        if length(cdims) != 1
+            report!(v, "E16", "/row_support",
+                    "/row_support has one dimension, `row`, and this has " *
+                    "$(length(cdims))")
+        elseif cdims[1] != v.nrows
+            report!(v, "E16", "/row_support",
+                    "$(cdims[1]) values in a file of $(v.nrows) rows")
+        end
+        # Read in full even by a structural pass, as a metadata open
+        # reads it (conventions section 7): E16 in an unaligned file is
+        # decided from these values and from nothing else.
+        v.row_support = Int.(vec(safe_read(d; max_elements = v.max_elements)))
     end
     n = length(v.supports)
     for x in v.row_support
@@ -1082,7 +1110,8 @@ function check_supports!(v::Validator)
             "`kind` must be mesh, axis or none")
         types, offsets, conn = check_cells!(v, path, g, kind, n_nodes, n_cells)
         coords = check_coordinates!(v, path, g, kind, n_nodes)
-        if haskey(a, "support_id") && a["support_id"].value isa AbstractString
+        if haskey(a, "support_id") && a["support_id"].value isa AbstractString &&
+           kind in ("mesh", "axis", "none")
             mesh = kind == "mesh"
             want = support_id(n_nodes;
                               cell_types = mesh ? types : UInt8[],
@@ -1123,7 +1152,7 @@ function check_cells!(v::Validator, path, g, kind, n_nodes, n_cells)
         all(has) || report!(v, "E38", path,
             "a mesh support needs cell_types, cell_offsets and " *
             "cell_connectivity")
-    else
+    elseif kind in ("axis", "none")
         cellscale = hard_child(g, "cell")
         if any(has) || cellscale isa HDF5.Dataset
             report!(v, "E38", path,
@@ -1147,8 +1176,9 @@ function check_cells!(v::Validator, path, g, kind, n_nodes, n_cells)
         report!(v, "E20", "$(path)/cell_types", "cell_types must be uint8")
     for n in ("cell_offsets", "cell_connectivity")
         t = type_info(HDF5.datatype(g[n]))
-        (t.class === :int && t.signed && t.size == 8) ||
-            report!(v, "E20", "$(path)/$(n)", "$(n) must be int64")
+        (t.class === :int && t.signed && t.size == 8 && t.little) ||
+            report!(v, "E20", "$(path)/$(n)",
+                    "$(n) must be little-endian int64")
     end
     for t in types
         haskey(CELL_NODES, Int(t)) || report!(v, "E21", "$(path)/cell_types",
@@ -1198,6 +1228,9 @@ end
 
 function check_coordinates!(v::Validator, path, g, kind, n_nodes)
     have = hard_child(g, "coordinates")
+    # A support that does not say what kind it is is E39, and no rule
+    # that depends on the kind is decided for it.
+    kind in ("mesh", "axis", "none") || return nothing
     if kind in ("mesh", "axis")
         have === nothing && (report!(v, "E03", path,
             "a $(kind) support requires a coordinates array"); return nothing)
@@ -1237,6 +1270,9 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
             push!(slots, ("$(path)/$(sub)/$(n)", loc, obj))
         end
     end
+    for (spath, _, obj) in slots
+        obj isa HDF5.Group && vchildren!(v, obj, spath)
+    end
     nweight = Dict(:node => 0, :cell => 0)
     nnormal = Dict(:node => 0, :cell => 0)
     for (spath, loc, obj) in slots
@@ -1249,11 +1285,14 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
         end
         role = haskey(a, "role") && a["role"].value isa AbstractString ?
                a["role"].value : nothing
-        if role === nothing
+        if role === nothing && !haskey(a, "role")
             report!(v, "E02", spath, "no `role` attribute")
             v.missing_public = true
+        elseif role === nothing
+            # Stored in the wrong encoding: E19's, not missing.
         elseif !(Symbol(role) in ARRAY_ROLES)
             report!(v, "E02", spath, "`$(role)` is not a role of section 3")
+            v.missing_public = true
             role = nothing
         end
         role == "weight" && (nweight[loc] += 1)
@@ -1262,7 +1301,14 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
         check_statistic!(v, spath, a)
         haskey(a, "varies") || (report!(v, "E39", spath,
             "`varies` is missing"); v.missing_public = true)
-        haskey(a, "components") || (report!(v, "E39", spath,
+        # Section 5 names three values, for a slot a callable serves as
+        # much as for one that holds data.
+        vs = sattr(a, "varies")
+        vs === nothing || vs in ("none", "row") || startswith(vs, "group:") ||
+            report!(v, "E04", spath, "`varies` is not none, row or group:<k>")
+        # Section 14: a slot without `components` is E31, which E39
+        # names as the rule that covers it.
+        haskey(a, "components") || (report!(v, "E31", spath,
             "`components` is missing"); v.missing_public = true)
         if role == "field" || role == "derived"
             if !haskey(a, "units")
@@ -1283,7 +1329,9 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
                     "a derived array needs `derived_from` and `recipe`")
             v.missing_public = true
         end
-        if role in ("weight", "normal") && !haskey(a, "recomputed")
+        # Present and false is no more a mark than absent (W06).
+        if role in ("weight", "normal") &&
+           !(haskey(a, "recomputed") && a["recomputed"].value === true)
             report!(v, "W06", spath,
                     "not marked as recomputed from the connectivity")
         end
@@ -1336,6 +1384,10 @@ function check_array_shape!(v::Validator, spath, d, a, role, loc, sname,
         T = uint8_eltype(ti)
         T in DTYPE_BY_ROLE[role] || report!(v, "E20", spath,
             "a $(role) array may not be stored as $(T)")
+        T in DTYPE_BY_ROLE[role] && !ti.little && ti.size > 1 &&
+            report!(v, "E20", spath,
+                    "a $(role) array is stored little-endian, and this " *
+                    "one is big-endian")
     end
     varies = haskey(a, "varies") && a["varies"].value isa AbstractString ?
              a["varies"].value : nothing
@@ -1381,11 +1433,9 @@ function check_array_shape!(v::Validator, spath, d, a, role, loc, sname,
             "$(cdims[axis]) $(loc)s where the support declares $(want)")
     end
     # In an unaligned file the count is how many rows reference this
-    # support, which only the values of /row_support say (section 22).
-    # A structural pass does not read them, so it leaves that half of
-    # E16 to the full pass and decides the aligned half, which is the
-    # row count in an attribute.
-    if lead == "row" && (v.aligned || !v.structural)
+    # support, which only the values of /row_support say (section 22);
+    # every pass reads them, so the open and the read decide it alike.
+    if lead == "row"
         want = v.aligned ? v.nrows : rows_on_support(v, sindex)
         cdims[1] == want || report!(v, "E16", spath,
             "a leading dimension of $(cdims[1]) where $(want) rows " *
@@ -1510,11 +1560,13 @@ function check_dict!(v::Validator, path, g, toplevel::Bool, depth::Int)
             check_string_bytes(at.raw) || report!(v, "E32", path,
                 "attribute `$(name)` holds a NUL byte or is not UTF-8")
         elseif at.ti.class === :int
-            at.ti.size in (1, 8) || report!(v, "E32", path,
-                "attribute `$(name)` is neither int8 nor int64")
+            (at.ti.size in (1, 8) && at.ti.signed &&
+             (at.ti.little || at.ti.size == 1)) ||
+                report!(v, "E32", path, "attribute `$(name)` is neither " *
+                        "int8 nor little-endian int64")
         elseif at.ti.class === :float
-            at.ti.size == 8 || report!(v, "E32", path,
-                "attribute `$(name)` is not float64")
+            (at.ti.size == 8 && at.ti.little) || report!(v, "E32", path,
+                "attribute `$(name)` is not little-endian float64")
         end
     end
     for name in vchildren!(v, g, path)
@@ -1554,6 +1606,9 @@ function check_dict!(v::Validator, path, g, toplevel::Bool, depth::Int)
             T = uint8_eltype(ti)
             T in (Int8, Int32, Int64, Float64) || report!(v, "E32", p,
                 "a dtype the codec does not allow: $(T)")
+            T in (Int32, Int64, Float64) && !ti.little &&
+                report!(v, "E32", p, "a big-endian dataset; section 25 " *
+                        "stores a numeric array little-endian")
         end
         end
     end
@@ -1598,6 +1653,7 @@ function check_every_dataset!(v::Validator)
                     "axis $(axis - 1) is unlimited on the dimension " *
                     "`$(n)`, and section 19 leaves only `row` unlimited")
         end
+        wanted = wanted_dim_names(path, length(cdims))
         for (axis, n) in pairs(names)
             k = axes[axis][1]
             if k < 0
@@ -1610,10 +1666,21 @@ function check_every_dataset!(v::Validator)
             elseif k > 1
                 report!(v, "E25", path,
                         "axis $(axis - 1) carries $(k) dimension scales")
-            elseif n !== nothing && !known_dim_name(n)
+            elseif n === nothing
+                # One reference, and it is not to a dimension scale this
+                # file holds: a scale deleted after it was attached, or
+                # something that never was one.
+                report!(v, "E25", path,
+                        "axis $(axis - 1) is attached to something that is " *
+                        "not a dimension scale of this file")
+            elseif !known_dim_name(n)
                 report!(v, "E25", path,
                         "axis $(axis - 1) carries a scale called `$(n)`, " *
                         "which section 21 does not name")
+            elseif wanted[axis] !== nothing && n != wanted[axis]
+                report!(v, "E25", path,
+                        "axis $(axis - 1) carries `$(n)`, where section 21 " *
+                        "names `$(wanted[axis])`")
             elseif n !== nothing
                 # Section 21 gives a scale both CLASS and NAME.  One
                 # with only CLASS is half a scale, and the axis it is
@@ -1658,7 +1725,11 @@ function check_every_dataset!(v::Validator)
             ti.size > longest && report!(v, "W13", path,
                 "stored in $(ti.size) bytes where $(longest) would do")
         end
-        ti.class === :float && ti.size == 4 && report!(v, "E20", path,
+        # Section 19's table sends a dataset inside a callable's
+        # dictionary to section 25, where a float32 is E32, which the
+        # dictionary check reports; E20 is for the public datasets.
+        ti.class === :float && ti.size == 4 &&
+            !startswith(path, "/callables/") && report!(v, "E20", path,
             "float32 is not allowed anywhere")
         ti.vlen && report!(v, "E19", path,
             "a variable-length type is never legal")
@@ -1710,6 +1781,29 @@ function check_scale!(v::Validator, path::AbstractString, d::HDF5.Dataset)
     return v
 end
 
+"""The one name section 21 allows on each axis of the dataset at
+`path`, where its position decides it, or `nothing` for an axis whose
+name another rule checks: a category table carries category_<table>, a
+support's own cell datasets carry cell, cell_plus_one and index, and
+axis i of a dictionary dataset carries mestra_<dataset>_d<i>."""
+function wanted_dim_names(path::AbstractString, nd::Int)
+    out = Union{String,Nothing}[nothing for _ in 1:nd]
+    parts = split(strip(path, '/'), '/')
+    nd == 0 && return out
+    if length(parts) == 2 && parts[1] == "categories"
+        out[1] = "category_" * parts[2]
+    elseif parts[1] == "callables" && length(parts) >= 3
+        for i in 1:nd
+            out[i] = "mestra_$(parts[end])_d$(i - 1)"
+        end
+    elseif parts[1] == "supports" && length(parts) == 3
+        cell = Dict("cell_types" => "cell", "cell_offsets" => "cell_plus_one",
+                    "cell_connectivity" => "index")
+        haskey(cell, parts[3]) && (out[1] = cell[parts[3]])
+    end
+    return out
+end
+
 function known_dim_name(n::AbstractString)
     n in ("row", "node", "cell", "cell_plus_one", "index") && return true
     startswith(n, "component_") && return true
@@ -1738,6 +1832,10 @@ end
 # ------------------------------------------------- unknown, private
 
 function check_unknown!(v::Validator)
+    # /notes holds attributes, so nothing else walks its members; a
+    # link among them is still a link in the public tree (E40).
+    notes = vroot(v, "notes")
+    notes === nothing || vchildren!(v, notes, "/notes")
     a = own_attrs(v.f)
     for name in keys(a)
         name in ROOT_ATTRS || report!(v, "W11", "/",

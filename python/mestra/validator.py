@@ -286,11 +286,15 @@ class _FileValidator:
         that a pass that may not read a dataset has one place to say
         so.
         """
-        if self.tables_only and not where.startswith("/categories/"):
+        if self.tables_only and not (where.startswith("/categories/")
+                                     or where == "/row_support"):
             # A metadata open. The rule that wanted these values is
             # left unchecked, which is not a finding: the nine
             # structural rules of section 2 of the conventions do not
-            # need them, and everything else waits for the read.
+            # need them, and everything else waits for the read. A
+            # category table and /row_support are read in full, as
+            # section 7 of the conventions says: E16 in an unaligned
+            # file is decided from /row_support and nothing else.
             return None
         try:
             return np.asarray(h5safe.read_values(dset, where,
@@ -570,14 +574,14 @@ class _FileValidator:
         if role in ("design", "condition", "time"):
             _ = self._float64(dset, where, "a %s key" % role)
         elif role in ("categorical", "group", "split", "status"):
-            if dtype.kind not in "iu" or dtype.itemsize not in (4, 8):
-                self.error("E20", where, "a %s key is int32 or int64, "
-                                         "and this is %s"
+            if dtype not in _SIGNED_LE:
+                self.error("E20", where, "a %s key is little-endian "
+                                         "int32 or int64, and this is %s"
                            % (role, dtype))
-        elif role == "id" and not is_fixed_string(dtype) and not (
-                dtype.kind == "i" and dtype.itemsize == 8):
-            self.error("E20", where, "an id key is int64 or a "
-                                     "fixed-length UTF-8 string")
+        elif role == "id" and not is_fixed_string(dtype) and \
+                dtype != np.dtype("<i8"):
+            self.error("E20", where, "an id key is little-endian int64 "
+                                     "or a fixed-length UTF-8 string")
 
     def _categories_of(self, dset: h5py.Dataset, where: str,
                        role: str | None) -> None:
@@ -774,7 +778,10 @@ class _FileValidator:
             if required not in attrs:
                 self.error("E39", where, "a support carries %s"
                            % required)
-        kind = _attr(group, "kind") or "mesh"
+        # Without a kind (E39 above) no rule that depends on the kind
+        # applies: a support is not taken for a mesh because it did
+        # not say what it is.
+        kind = _attr(group, "kind")
         n_nodes = _attr(group, "n_nodes")
         n_nodes = int(n_nodes) if isinstance(n_nodes, int) else 0
         n_cells = _attr(group, "n_cells")
@@ -902,15 +909,17 @@ class _FileValidator:
                 wanted = CELL_TYPES.get(int(code))
                 if wanted is None:
                     continue
+                # At the offsets, which is where a node count comes
+                # from and where the other implementations report it.
                 if wanted == -1:
                     if width < 3:
-                        self.error("E22", where, "cell %d is a polygon "
-                                                 "of %d nodes"
+                        self.error("E22", where + "/cell_offsets",
+                                   "cell %d is a polygon of %d nodes"
                                    % (at, width))
                 elif width != wanted:
-                    self.error("E22", where, "cell %d is type %d and "
-                                             "takes %d nodes, and the "
-                                             "offsets give it %d"
+                    self.error("E22", where + "/cell_offsets",
+                               "cell %d is type %d and takes %d nodes, "
+                               "and the offsets give it %d"
                                % (at, int(code), wanted, width))
         if connectivity.size:
             outside = connectivity[(connectivity < 0)
@@ -925,6 +934,10 @@ class _FileValidator:
                     inside: dict[str, Any]) -> None:
         """E08: the digest against the stored arrays (section 24)."""
         if "support_id" not in _names(group):
+            return
+        if kind not in ("mesh", "axis", "none"):
+            # The declared kind decides which steps contribute bytes,
+            # so a support that declares none has no digest to check.
             return
         axis_coordinates = None
         if kind == "axis" and isinstance(inside.get("coordinates"),
@@ -972,6 +985,7 @@ class _FileValidator:
             self.error("E02", where, "%r is not an array role of "
                                      "section 3" % role)
         varies = _attr(member, "varies")
+        declared = varies is not None
         if varies is None:
             self.error("E39", where, "an array carries varies")
             varies = "none"
@@ -986,7 +1000,9 @@ class _FileValidator:
                                   or "recipe" not in attrs):
             self.error("E13", where, "a derived array carries "
                                      "derived_from and recipe")
-        if role in ("weight", "normal") and "recomputed" not in attrs:
+        if role in ("weight", "normal") and not _marked_recomputed(member):
+            # Present and false is no more a mark than absent: the
+            # array does not say it was recomputed (section 14).
             self.warn("W06", where, "%s arrays are recomputed from the "
                                     "connectivity, never imported; say "
                                     "so with recomputed" % role)
@@ -998,6 +1014,12 @@ class _FileValidator:
         if components is None:
             self.error("E31", where, "an array slot declares its "
                                      "components")
+        if not (varies in ("none", "row") or varies.startswith("group:")):
+            # Section 5 names three: none, row and group:<k>. No
+            # leading dimension agrees with any other word.
+            self.error("E04", where, "varies is none, row or group:<k>, "
+                                     "and this is %r" % varies)
+            return role
 
         if not isinstance(member, h5py.Dataset):
             return role
@@ -1005,7 +1027,11 @@ class _FileValidator:
         dims = _logical(member, self.scales)
         wanted = 1 + (1 if varies != "none" else 0) \
             + (1 if _attr(member, "statistic") == "draw" else 0) + 1
-        if member.ndim != wanted:
+        if not declared:
+            # E39 already: with no varies there is nothing to hold the
+            # leading dimension against.
+            pass
+        elif member.ndim != wanted:
             self.error("E04", where, "an array with varies = %s has %d "
                                      "axes, and this one has %d"
                        % (varies, wanted, member.ndim))
@@ -1059,10 +1085,10 @@ class _FileValidator:
     def _array_dtype(self, dset: h5py.Dataset, where: str,
                      role: str | None) -> None:
         if role == "label":
-            if dset.dtype.kind not in "iu" or \
-                    dset.dtype.itemsize not in (4, 8):
-                self.error("E20", where, "a label is int32 or int64, "
-                                         "and this is %s" % dset.dtype)
+            if dset.dtype not in _SIGNED_LE:
+                self.error("E20", where, "a label is little-endian int32 "
+                                         "or int64, and this is %s"
+                           % dset.dtype)
             return
         if role in ("coordinates", "field", "derived", "weight",
                     "normal"):
@@ -1204,14 +1230,21 @@ class _FileValidator:
                                          "float64"):
                 self.error("E32", path, "%s is not a dtype a dictionary "
                                         "may hold" % member.dtype)
+            elif member.dtype.byteorder == ">":
+                self.error("E32", path, "a numeric array in a dictionary "
+                                        "is stored little-endian, and "
+                                        "this one is big-endian")
         for name in _names(group):
             if name.startswith(RESERVED_PREFIX):
                 continue
             if top_level and name in ("type", "repr"):
                 continue
             if not is_legal_name(name):
-                self.error("E33", "%s/%s" % (where, name), "a "
-                           "dictionary key is a legal netCDF-4 name")
+                # An attribute's name is reported at the object that
+                # carries it, as for every other attribute: one
+                # finding per rule per object (conventions section 5).
+                self.error("E33", where, "the dictionary key %r is not a "
+                           "legal netCDF-4 name" % name)
 
     # -- the byte-level sweep
 
@@ -1665,11 +1698,10 @@ class _FileValidator:
         row-varying array on a support in an unaligned file, where it
         is the number of rows referencing that support". Section 21
         puts that same number in the file as the length of the
-        support's own `row` scale, so a pass that did not read
-        `/row_support` -- a metadata open, by section 7 of the
-        conventions -- takes it from there. The two agree in a
-        conforming file; where they do not, only a pass that read the
-        column can say so, and that is `validate`.
+        support's own `row` scale, so a pass that could not read
+        `/row_support` takes it from there. A metadata open reads the
+        column (section 7 of the conventions), so the open and the
+        read decide this the same way.
         """
         rows = self.rows_on.get(support_name)
         if rows is not None:
@@ -1830,6 +1862,23 @@ def w04(values: np.ndarray, lower: Any, upper: Any) -> str | None:
     return ("%s outside the declared bounds [%s, %s], %s"
             % (_count(int(outside.sum()), "a value", "values"),
                lower, upper, _at("row", rows)))
+
+
+def _marked_recomputed(obj: Any) -> bool:
+    """True when `recomputed` is there and says true. A malformed
+    value is E19's to report, and is not a mark either."""
+    try:
+        value = _attr(obj, "recomputed")
+    except Exception:  # noqa: BLE001
+        return False
+    return value is True or (isinstance(value, (np.integer, int))
+                             and not isinstance(value, bool)
+                             and int(value) == 1)
+
+
+#: Section 19's integer dtypes for category ids and labels: signed and
+#: little-endian, which a test of kind and size alone does not see.
+_SIGNED_LE = (np.dtype("<i4"), np.dtype("<i8"))
 
 
 def _names(obj: Any) -> list[str]:

@@ -84,10 +84,36 @@ classdef H5
             else
                 name = '';
             end
+            % Section 19 stores every numeric dataset little-endian and
+            % section 18 names little-endian types for every number, so
+            % a big-endian one is named apart: comparing class and size
+            % alone let both rules pass a file that breaks them.
+            if ~isempty(name) && sz > 1 && H5T.get_order(tid) == ...
+                    H5ML.get_constant_value('H5T_ORDER_BE')
+                name = [name 'be'];
+            end
+        end
+
+        function name = baseType(name)
+        %baseType  A short type name without its big-endian mark, for
+        %   the questions byte order does not change: which MATLAB
+        %   class holds the value and how many bytes an element takes.
+            if numel(name) > 2 && strcmp(name(end - 1:end), 'be') && ...
+                    ~strcmp(name, 'vlstring')
+                name = name(1:end - 2);
+            end
         end
 
         function tid = typeId(name)
-        %typeId  The little-endian file type for a short type name.
+        %typeId  The file type for a short type name: little-endian,
+        %   unless the name carries the big-endian mark typeName gives
+        %   a type read from a file, which a copy keeps as it found it.
+            base = mestra.internal.H5.baseType(name);
+            if ~strcmp(base, name)
+                tid = mestra.internal.H5.typeId(base);
+                H5T.set_order(tid, H5ML.get_constant_value('H5T_ORDER_BE'));
+                return
+            end
             switch name
                 case 'float64', tid = H5T.copy('H5T_IEEE_F64LE');
                 case 'float32', tid = H5T.copy('H5T_IEEE_F32LE');
@@ -103,7 +129,7 @@ classdef H5
 
         function tid = memType(name)
         %memType  The native memory type for a short type name.
-            switch name
+            switch mestra.internal.H5.baseType(name)
                 case 'float64', tid = H5T.copy('H5T_NATIVE_DOUBLE');
                 case 'float32', tid = H5T.copy('H5T_NATIVE_FLOAT');
                 case 'int64',   tid = H5T.copy('H5T_NATIVE_LLONG');
@@ -123,7 +149,7 @@ classdef H5
         %   not know are copied through as they stand, and MATLAB
         %   refuses to write a double into an H5T_IEEE_F32LE dataset,
         %   so the name has to mean `single` here.
-            switch name
+            switch mestra.internal.H5.baseType(name)
                 case 'float64', v = double(data);
                 case 'float32', v = single(data);
                 case 'int64',  v = int64(data);
@@ -440,13 +466,21 @@ classdef H5
             H5A.close(aid); H5S.close(sid); H5T.close(tid);
         end
 
-        function writeRawStrAttr(oid, name, bytes)
+        function writeRawStrAttr(oid, name, bytes, size, cset, strpad)
         %writeRawStrAttr  A fixed-length string attribute, byte exact.
         %   Used for the null sentinel of section 18, whose first byte
         %   is NUL and which therefore cannot go through unicode2native
-        %   and back.
+        %   and back.  SIZE, CSET and STRPAD, when given, are the type
+        %   the attribute had where it was copied from, so that a copy
+        %   of a group this reader does not interpret keeps them.
             n = max(numel(bytes), 1);
             tid = mestra.internal.H5.strType(n);
+            if nargin > 3
+                n = max([size n]);
+                H5T.set_size(tid, n);
+                H5T.set_cset(tid, cset);
+                H5T.set_strpad(tid, strpad);
+            end
             sid = H5S.create('H5S_SCALAR');
             aid = H5A.create(oid, name, tid, sid, 'H5P_DEFAULT');
             buf = char(zeros(1, n));
@@ -1076,12 +1110,13 @@ classdef H5
         %     'bytes'     the characters came back one per stored byte,
         %                 so out.bytes is exactly what the file holds
         %                 and every rule about those bytes is decidable
-        %     'replaced'  the count is right but characters above 255
-        %                 came back, which is MATLAB substituting one
-        %                 replacement character per byte it could not
-        %                 decode: the bytes were not valid UTF-8
-        %     'decoded'   the count changed, so MATLAB decoded valid
-        %                 multi-byte UTF-8 and the bytes are gone
+        %     'replaced'  U+FFFD came back, which is MATLAB
+        %                 substituting a replacement character for a
+        %                 byte it could not decode: the bytes were not
+        %                 valid UTF-8
+        %     'decoded'   the count changed, or a character above 127
+        %                 came back, so MATLAB decoded valid multi-byte
+        %                 UTF-8 and the bytes are gone
             out.verdict = 'bytes';
             out.bytes = zeros(info.strSize, 0, 'uint8');
             n = prod(max(info.dims, 0));
@@ -1091,6 +1126,14 @@ classdef H5
             if n == 0, return, end
             buf = mestra.internal.H5.guardedRead(did);
             if iscell(buf)
+                % One string per cell is MATLAB's decoded text, and a
+                % character above 127 in it is not a stored byte: the
+                % bytes are gone, and checking what uint8 makes of the
+                % text would report faults the file does not have.
+                if any(cellfun(@(c) any(double(c) > 127), buf(:)))
+                    out.verdict = 'decoded';
+                    return
+                end
                 out.bytes = zeros(info.strSize, n, 'uint8');
                 for i = 1:n
                     b = uint8(buf{i});
@@ -1104,8 +1147,21 @@ classdef H5
                 out.verdict = 'decoded';
                 return
             end
-            if any(codes > 255)
+            % MATLAB stands U+FFFD in for a byte it could not decode;
+            % any other character above 255 is one it did decode, from
+            % valid UTF-8 ("Ωmega" holds U+03A9).
+            if any(codes == 65533)
                 out.verdict = 'replaced';
+                return
+            end
+            % A character from 128 to 255 may be a stored byte or a
+            % character MATLAB decoded from two of them and padded back
+            % to the size ("ß0" is three bytes and comes back as two
+            % characters and a NUL): the two cannot be told apart, so
+            % the bytes are not recovered and nothing is claimed about
+            % them.
+            if any(codes > 127)
+                out.verdict = 'decoded';
                 return
             end
             out.bytes = reshape(uint8(codes), info.strSize, n);
@@ -1297,10 +1353,10 @@ classdef H5
             if nargin < 3, depth = 0; end
             if nargin < 4, seen = []; end
             tree.stopped = {};
-            tree.attrs = struct('name', {}, 'type', {}, 'bytes', {}, ...
-                                'value', {});
+            tree.attrs = H5.captureAttrs([]);
             tree.datasets = struct('name', {}, 'info', {}, 'data', {}, ...
-                                   'scales', {}, 'label', {});
+                                   'scales', {}, 'label', {}, 'attrs', {}, ...
+                                   'scalePaths', {});
             tree.groups = struct('name', {}, 'tree', {});
             if depth > mestra.internal.Limits.get('maxDepth')
                 tree.stopped{end + 1} = sprintf( ...
@@ -1308,19 +1364,7 @@ classdef H5
                     mestra.internal.Limits.get('maxDepth'));
                 return
             end
-            for name = H5.publicAttrNames(gid)
-                info = H5.attrInfo(gid, name{1});
-                rec.name = name{1};
-                rec.type = info.type;
-                rec.bytes = [];
-                rec.value = [];
-                if strcmp(info.type, 'string')
-                    rec.bytes = H5.readRawStrAttr(gid, name{1});
-                elseif ~isempty(info.type)
-                    rec.value = H5.readAttr(gid, name{1});
-                end
-                tree.attrs(end + 1) = rec;
-            end
+            tree.attrs = H5.captureAttrs(gid);
             for name = H5.children(gid)
                 kind = H5.childType(gid, name{1});
                 switch kind
@@ -1375,32 +1419,80 @@ classdef H5
                 rec.data = H5.readData(did, info);
             end
             rec.scales = cell(1, numel(info.dims));
+            scalePaths = cell(1, numel(info.dims));
             for axis = 1:numel(info.dims)
                 found = H5.scaleNames(did, axis - 1, map);
                 if isempty(found)
                     rec.scales{axis} = '';
+                    scalePaths{axis} = '';
                 else
                     rec.scales{axis} = found(1).name;
+                    scalePaths{axis} = found(1).path;
                 end
             end
             rec.label = '';
+            rec.attrs = H5.captureAttrs(did);
+            % The scale's path in the file, so that one outside the
+            % copied group -- a support's node, the file's row -- is
+            % attached again in the rewrite, which writes it too.
+            rec.scalePaths = scalePaths;
             if info.isScale && H5.hasAttr(did, 'NAME')
                 label = H5.readAttr(did, 'NAME');
                 if ischar(label), rec.label = label; end
             end
         end
 
+        function attrs = captureAttrs(oid)
+        %captureAttrs  An object's own attributes, kept as they stand:
+        %   a string with its stored bytes, its size, character set and
+        %   padding, a number with its type.  With OID empty, the empty
+        %   list of the right shape.
+            attrs = struct('name', {}, 'type', {}, 'bytes', {}, ...
+                           'value', {}, 'size', {}, 'cset', {}, ...
+                           'strpad', {});
+            if isempty(oid), return, end
+            H5 = mestra.internal.H5;
+            for name = H5.publicAttrNames(oid)
+                info = H5.attrInfo(oid, name{1});
+                rec.name = name{1};
+                rec.type = info.type;
+                rec.bytes = [];
+                rec.value = [];
+                rec.size = [];
+                rec.cset = [];
+                rec.strpad = [];
+                if strcmp(info.type, 'string')
+                    rec.bytes = H5.readRawStrAttr(oid, name{1});
+                    rec.size = info.size;
+                    rec.cset = info.cset;
+                    rec.strpad = info.strpad;
+                elseif ~isempty(info.type)
+                    rec.value = H5.readAttr(oid, name{1});
+                end
+                attrs(end + 1) = rec; %#ok<AGROW>
+            end
+        end
+
+        function replayAttrs(oid, attrs)
+        %replayAttrs  Write back what captureAttrs took.
+            H5 = mestra.internal.H5;
+            for i = 1:numel(attrs)
+                a = attrs(i);
+                if strcmp(a.type, 'string') && ~isempty(a.size)
+                    H5.writeRawStrAttr(oid, a.name, a.bytes, a.size, ...
+                                       a.cset, a.strpad);
+                elseif strcmp(a.type, 'string')
+                    H5.writeRawStrAttr(oid, a.name, a.bytes);
+                elseif ~isempty(a.type)
+                    H5.writeNumAttr(oid, a.name, a.value, a.type);
+                end
+            end
+        end
+
         function replayTree(gid, tree)
         %replayTree  Write back a subtree captureTree took.
             H5 = mestra.internal.H5;
-            for i = 1:numel(tree.attrs)
-                a = tree.attrs(i);
-                if strcmp(a.type, 'string')
-                    H5.writeRawStrAttr(gid, a.name, a.bytes);
-                elseif ~isempty(a.type)
-                    H5.writeNumAttr(gid, a.name, a.value, a.type);
-                end
-            end
+            H5.replayAttrs(gid, tree.attrs);
             made = containers.Map('KeyType', 'char', 'ValueType', 'any');
             for i = 1:numel(tree.datasets)
                 ds = tree.datasets(i);
@@ -1431,19 +1523,8 @@ classdef H5
                 else
                     H5.writeData(did, ds.info.type, ds.data, ds.info.strSize);
                 end
+                H5.replayAttrs(did, ds.attrs);
                 made(ds.name) = did;
-            end
-            for i = 1:numel(tree.datasets)
-                ds = tree.datasets(i);
-                for axis = 1:numel(ds.scales)
-                    if ~isempty(ds.scales{axis}) && made.isKey(ds.scales{axis})
-                        H5DS.attach_scale(made(ds.name), ...
-                                          made(ds.scales{axis}), axis - 1);
-                    end
-                end
-            end
-            for key = made.keys()
-                H5D.close(made(key{1}));
             end
             for i = 1:numel(tree.groups)
                 gcpl = H5.plist('H5P_GROUP_CREATE');
@@ -1452,6 +1533,31 @@ classdef H5
                 H5P.close(gcpl);
                 H5.replayTree(sub, tree.groups(i).tree);
                 H5G.close(sub);
+            end
+            % Attached after the subgroups exist, so that a scale kept
+            % in one of them is there to attach.
+            fid = H5I.get_file_id(gid);
+            for i = 1:numel(tree.datasets)
+                ds = tree.datasets(i);
+                for axis = 1:numel(ds.scales)
+                    if ~isempty(ds.scales{axis}) && made.isKey(ds.scales{axis})
+                        H5DS.attach_scale(made(ds.name), ...
+                                          made(ds.scales{axis}), axis - 1);
+                    elseif isfield(ds, 'scalePaths') && ...
+                            numel(ds.scalePaths) >= axis && ...
+                            ~isempty(ds.scalePaths{axis}) && ...
+                            H5.exists(fid, ds.scalePaths{axis})
+                        sd = H5D.open(fid, ds.scalePaths{axis});
+                        if H5DS.is_scale(sd)
+                            H5DS.attach_scale(made(ds.name), sd, axis - 1);
+                        end
+                        H5D.close(sd);
+                    end
+                end
+            end
+            H5F.close(fid);
+            for key = made.keys()
+                H5D.close(made(key{1}));
             end
         end
 

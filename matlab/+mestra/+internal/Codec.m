@@ -27,7 +27,7 @@ classdef Codec
 
     methods (Static)
 
-        function [dict, problems] = read(gid, isTop, depth, eager)
+        function [dict, problems] = read(gid, isTop, depth, eager, map)
         %read  Rebuild a dictionary from an HDF5 group.
         %   `problems` lists the section 25 violations found, by rule
         %   identifier and reason, so that the validator can report
@@ -53,6 +53,10 @@ classdef Codec
             if nargin < 2, isTop = false; end
             if nargin < 3, depth = 0; end
             if nargin < 4, eager = true; end
+            % MAP, the scale map of section 21, lets the walk name the
+            % scale on each axis of a dataset; without it the names
+            % are not asked about.
+            if nargin < 5, map = []; end
             dict = containers.Map('KeyType', 'char', 'ValueType', 'any');
             problems = {};
             H5 = mestra.internal.H5;
@@ -121,6 +125,14 @@ classdef Codec
                 key = name{1};
                 if mestra.internal.Text.reserved(key), continue, end
                 kind = H5.childType(gid, key);
+                if any(strcmp(kind, {'soft', 'external'}))
+                    % E40: a link in the public tree that is not a
+                    % hard link, and a dictionary is public.
+                    problems{end + 1} = sprintf( ...
+                        'E40 %s: a %s link, which this reader does not follow', ...
+                        key, kind); %#ok<AGROW>
+                    continue
+                end
                 if ~any(strcmp(kind, {'group', 'dataset'}))
                     problems{end + 1} = sprintf( ...
                         'U03 %s: a %s, which this reader does not follow', ...
@@ -136,7 +148,7 @@ classdef Codec
                     sub = H5G.open(gid, key);
                     [dict(key), subProblems] = ...
                         mestra.internal.Codec.read(sub, false, depth + 1, ...
-                                                   eager);
+                                                   eager, map);
                     H5G.close(sub);
                     problems = [problems subProblems]; %#ok<AGROW>
                 else
@@ -164,6 +176,19 @@ classdef Codec
                         problems{end + 1} = sprintf( ...
                             '%s: a top-level key the container owns', ...
                             key); %#ok<AGROW>
+                    end
+                    if ~isempty(map) && ~info.isScale
+                        % Section 21: axis i of a dictionary dataset
+                        % carries mestra_<dataset>_d<i> and no other.
+                        for axis = 1:numel(info.dims)
+                            want = sprintf('mestra_%s_d%d', key, axis - 1);
+                            got = H5.scaleNames(did, axis - 1, map);
+                            if numel(got) ~= 1 || ~strcmp(got(1).name, want)
+                                problems{end + 1} = sprintf( ...
+                                    'E25 %s: axis %d does not carry %s', ...
+                                    key, axis - 1, want); %#ok<AGROW>
+                            end
+                        end
                     end
                     if ~eager
                         H5D.close(did);
@@ -194,7 +219,7 @@ classdef Codec
                         elements = mestra.internal.Codec.cOrder( ...
                             data, info.dims);
                         dict(key) = mestra.Array.fromFile(elements, ...
-                                                          info.dims, info.type);
+                            info.dims, mestra.internal.H5.baseType(info.type));
                     end
                     H5D.close(did);
                 end
@@ -303,7 +328,10 @@ classdef Codec
             end
             empty = any(dims == 0);
             if empty
-                maxdims = -ones(1, numel(dims));
+                % Section 25 makes each zero-length axis unlimited, and
+                % E43 allows that axis and no other.
+                maxdims = dims;
+                maxdims(dims == 0) = -1;
                 chunk = ones(1, numel(dims));
             else
                 maxdims = dims;

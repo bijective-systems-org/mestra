@@ -470,7 +470,7 @@ def mesh_base(f, o):
             sattr(cl, "output", g("cl_output"))
     else:
         cl_values = g("cl_values", [0.25, 0.55])
-        cl = dataset(scalars, "cl", cl_values, "<f8", [row],
+        cl = dataset(scalars, "cl", cl_values, g("cl_dtype", "<f8"), [row],
                      n_rows=n_rows,
                      contiguous=g("cl_contiguous", False),
                      gzip=g("cl_gzip", None),
@@ -552,6 +552,8 @@ def mesh_base(f, o):
         sattr(w, "source", "data")
         if g("weight_recomputed", True):
             battr(w, "recomputed", True)
+        elif g("weight_recomputed_false", False):
+            battr(w, "recomputed", False)
 
     if g("row_support_values", None) is not None:
         dataset(f, "row_support", g("row_support_values"), "<i4",
@@ -599,7 +601,8 @@ def codec_array(group, name, data, zero_d=False):
     d = group.create_dataset(
         name, shape=data.shape, dtype=data.dtype.newbyteorder("<"),
         data=data, track_times=False,
-        maxshape=(None,) * data.ndim if empty else None,
+        maxshape=(tuple(None if n == 0 else n for n in data.shape)
+                  if empty else None),
         chunks=(1,) * data.ndim if empty else None)
     for axis, length in enumerate(data.shape):
         s = scale(group, "mestra_%s_d%d" % (name, axis), length,
@@ -688,7 +691,7 @@ def affine_base(f, o):
     node_arrays = sup.create_group("node_arrays")
     p = node_arrays.create_group("pressure")
     sattr(p, "role", "field")
-    sattr(p, "varies", "row")
+    sattr(p, "varies", g("pressure_varies", "row"))
     sattr(p, "units", "Pa")
     iattr(p, "components", 1)
     sattr(p, "source", g("pressure_source", "callable:m1"))
@@ -709,7 +712,7 @@ def affine_base(f, o):
     m1 = f.create_group("callables").create_group("m1")
     if g("type", "affine") is not None:
         sattr(m1, "type", g("type", "affine"))
-    sattr(m1, "repr", "affine(mach, alpha -> cl, pressure)")
+    sattr(m1, "repr", g("repr", "affine(mach, alpha -> cl, pressure)"))
     scale_keys = scale(m1, "mestra_keys_d0", len(AFFINE_KEYS))
     strings(m1, "keys", AFFINE_KEYS, scale_keys)
     if g("zero_d_key", False):
@@ -834,6 +837,97 @@ def case_affine_zero_rows(f):
             {"cl": "/scalars/cl",
              "pressure": "/supports/s0/node_arrays/pressure"},
             AFFINE_AT)])
+
+
+def case_dictionary_null(f):
+    """The null sentinel of section 18, at the top of a dictionary and
+    one level down. No other case carries it."""
+    affine_base(f, {"type": "example"})
+    m1 = f["callables/m1"]
+    rattr(m1, "fallback", b"\0null")
+    rattr(m1["outputs"], "retired", b"\0null")
+    d = affine_dict()
+    d["fallback"] = None
+    d["outputs"]["retired"] = None
+    return expect(
+        "A dictionary holding the null sentinel at its top level and "
+        "inside a nested dictionary. Both are values, not strings with a "
+        "NUL in them, and both survive a rewrite.",
+        support_ids={"s0": MESH_SID},
+        codec={"m1": tagged(d)})
+
+
+def case_dictionary_empty_arrays(f):
+    """Empty arrays of more than one dimension inside a dictionary.
+    Section 25 makes each zero-length axis unlimited, and E43 allows
+    that axis and no other, so the axis of length 2 beside it is
+    fixed."""
+    affine_base(f, {"type": "example"})
+    m1 = f["callables/m1"]
+    empties = {"grid": np.zeros((2, 0), dtype="<f8"),
+               "pairs": np.zeros((0, 3), dtype="<i8"),
+               "flags": np.zeros((0,), dtype="<i4")}
+    for name in sorted(empties):
+        codec_array(m1, name, empties[name])
+    d = affine_dict()
+    d.update(empties)
+    return expect(
+        "A dictionary holding empty arrays of shape (2, 0), (0, 3) and "
+        "(0,). Only the zero-length axes are unlimited, and a rewrite "
+        "keeps the dtype, the shape and the maximum shape of each.",
+        support_ids={"s0": MESH_SID},
+        codec={"m1": tagged(d)})
+
+
+#: A constant: an affine callable with no keys at all (section 27).
+AFFINE_CONSTANT = {
+    "cl": {"A": np.zeros((1, 0)), "b": np.array([0.05]),
+           "shape": np.array([], dtype="<i8")},
+}
+
+
+def case_affine_no_keys(f):
+    """An affine callable of no keys, so A has a zero-length axis and
+    `keys` is an empty string dataset: section 27 makes it a string
+    dataset and section 25 says how an empty one is written."""
+    sattr(f, "created", CREATED)
+    sattr(f, "format", "mestra/0")
+    sattr(f, "writer", WRITER)
+    battr(f, "aligned", True)
+    row = scale(f, "row", 0, unlimited=True)
+    mach = dataset(f.create_group("keys"), "mach", np.zeros(0), "<f8",
+                   [row], n_rows=0)
+    sattr(mach, "role", "condition")
+    sattr(mach, "units", "1")
+    fattr(mach, "lower", 0.1)
+    fattr(mach, "upper", 0.9)
+    cl = f.create_group("scalars").create_group("cl")
+    sattr(cl, "units", "1")
+    sattr(cl, "source", "callable:m1")
+    sattr(cl, "output", "cl")
+    m1 = f.create_group("callables").create_group("m1")
+    sattr(m1, "type", "affine")
+    keys = m1.create_dataset("keys", shape=(0,), dtype=sdtype(1),
+                             maxshape=(None,), chunks=(1,),
+                             track_times=False)
+    keys.dims[0].attach_scale(scale(m1, "mestra_keys_d0", 0,
+                                    unlimited=True))
+    out = m1.create_group("outputs").create_group("cl")
+    for name in ("A", "b", "shape"):
+        codec_array(out, name, AFFINE_CONSTANT["cl"][name])
+    worked = affine_evaluation("m1", [], AFFINE_CONSTANT,
+                               {"cl": "/scalars/cl"}, AFFINE_AT)
+    # The file declares mach and the callable reads none of its keys,
+    # so the table carries mach, which section 26 says the callable
+    # ignores, and the table's one row is what gives cl one row.
+    worked["keys"] = {"mach": [fnum(at["mach"]) for at in AFFINE_AT]}
+    return expect(
+        "An affine callable with no keys: a constant. keys is an empty "
+        "fixed-length string dataset and A has shape (1, 0). Evaluated "
+        "on a one-row table of the file's key mach, which it ignores, "
+        "cl is b.",
+        codec={"m1": tagged(affine_dict([], AFFINE_CONSTANT))},
+        evaluation=[worked])
 
 
 # ------------------------------------------------- the five mappings
@@ -2043,10 +2137,14 @@ def case_support_kind_none(f):
                 probe("/keys/mach", mach, row=0)])
 
 
-def case_two_supports_row_varying(f):
+def case_two_supports_row_varying(f, served=False):
     """Section 22: a row-varying array in an unaligned file holds one
     entry per row referencing its support, in the file's row order,
-    over the support-local `row` dimension of section 21."""
+    over the support-local `row` dimension of section 21.
+
+    With `served`, the field on s1 is a slot a callable serves, which
+    holds no data. s1 still carries an array with varies = row, so it
+    still carries its own `row` scale (section 21)."""
     n_rows = 3
     row_support = [0, 1, 0]
     mach = np.array([0.40, 0.50, 0.60])
@@ -2110,13 +2208,34 @@ def case_two_supports_row_varying(f):
     sattr(c, "units", "m")
     iattr(c, "components", 2)
     sattr(c, "source", "data")
-    a = dataset(sup1.create_group("node_arrays"), "pressure", p1,
-                "<f8", [row1, node1, component_1], n_rows=1)
+    if served:
+        a = sup1.create_group("node_arrays").create_group("pressure")
+    else:
+        a = dataset(sup1.create_group("node_arrays"), "pressure", p1,
+                    "<f8", [row1, node1, component_1], n_rows=1)
     sattr(a, "role", "field")
     sattr(a, "varies", "row")
     sattr(a, "units", "Pa")
     iattr(a, "components", 1)
-    sattr(a, "source", "data")
+    sattr(a, "source", "callable:m1" if served else "data")
+    if served:
+        sattr(a, "output", "pressure")
+        m1 = f.create_group("callables").create_group("m1")
+        sattr(m1, "type", "affine")
+        strings(m1, "keys", ["mach"], scale(m1, "mestra_keys_d0", 1))
+        out = m1.create_group("outputs").create_group("pressure")
+        codec_array(out, "A", SERVED_S1["A"])
+        codec_array(out, "b", SERVED_S1["b"])
+        codec_array(out, "shape", SERVED_S1["shape"])
+        return expect(
+            "Two supports, three rows. s0 carries a stored row-varying "
+            "field; the field on s1 is served by a callable and holds no "
+            "data, and s1 still carries a support-local row scale, "
+            "because it carries an array with varies = row.",
+            warnings=["W05"],
+            support_ids={"s0": MESH_SID, "s1": S1_SID},
+            probes=[probe("/supports/s0/node_arrays/pressure", p0,
+                          row=1, node=2, component=0)])
 
     return expect(
         "Three rows over two supports with a row-varying field on "
@@ -2139,6 +2258,19 @@ def case_two_supports_row_varying(f):
                   node=3, component=0),
             probe("/scalars/cl", cl, row=2),
         ])
+
+
+#: The affine output that serves s1's field in the served variant:
+#: one key, four nodes, one component.
+SERVED_S1 = {
+    "A": np.array([[1.0], [2.0], [3.0], [4.0]]),
+    "b": np.array([0.0, 0.5, 1.0, 1.5]),
+    "shape": np.array([4, 1], dtype="<i8"),
+}
+
+
+def case_two_supports_one_served(f):
+    return case_two_supports_row_varying(f, served=True)
 
 
 def case_notes_and_private(f):
@@ -2191,6 +2323,23 @@ def case_notes_and_private(f):
         "none of which the byte-level rules reach.",
         probes=[probe("/scalars/cl", cl, row=1),
                 probe("/keys/mach", mach, row=0)])
+
+
+def private_as_found(f):
+    """A /private whose attributes and datasets are in encodings the
+    public part does not allow, which a copy keeps as they were."""
+    private = f.create_group("private")
+    string_attr_as(private, "origin", "solver log", h5py.h5t.CSET_ASCII,
+                   h5py.h5t.STR_NULLTERM)
+    private.attrs.create("revision", np.int32(7))
+    pd = private.create_dataset("residuals", data=np.array([1.0, 0.5]),
+                                dtype=">f8", track_times=False)
+    # A dimension scale of its own, so that a generic netCDF-4 reader
+    # walking /private still finds a named dimension (section 14).
+    pd.dims[0].attach_scale(scale(private, "sample", 2))
+    pd.attrs.create("scale", np.float64(2.0))
+    string_attr_as(pd, "units", "1", h5py.h5t.CSET_ASCII,
+                   h5py.h5t.STR_SPACEPAD)
 
 
 WIDE_KEYS = 100
@@ -2285,6 +2434,126 @@ def mk(builder, options, description, errors=(), warnings=(),
     return build
 
 
+def then(builder, change):
+    """A base file with something done to it after it is built, for
+    a deviation no option of the base describes."""
+    def build(f, o):
+        out = builder(f, o)
+        change(f)
+        return out
+    return build
+
+
+def big_endian_attr(obj, name, value):
+    """An integer attribute stored big-endian, which section 18 does
+    not allow: it names H5T_STD_I64LE."""
+    del obj.attrs[name]
+    obj.attrs.create(name, np.array(value, dtype=">i8"))
+
+
+def scale_deleted(f):
+    """The coordinates' component scale deleted after it was attached,
+    so that the axis names an object that is no longer there."""
+    del f["component_2"]
+
+
+def dictionary_scale_of_another(f):
+    """A dictionary dataset whose axis carries another dataset's
+    scale: section 21 names it mestra_<dataset>_d<i>."""
+    m1 = f["callables/m1"]
+    d = m1.create_dataset("weights", data=np.array([0.5, 0.25]),
+                          track_times=False)
+    d.dims[0].attach_scale(scale(m1, "mestra_other_d0", 2))
+
+
+def table_on_another_scale(f):
+    """A second category table attached to the first one's scale:
+    section 21 names a table's dimension category_<table>."""
+    strings(f["categories"], "zone", ["fore", "aft"],
+            f["category_region"])
+
+
+def dataset_without_scale(f):
+    """A dataset this version does not know inside a support group,
+    with no dimension scale on its axis."""
+    f["supports/s0"].create_dataset("extra", data=np.arange(3.0),
+                                    track_times=False)
+
+
+def string_attr_as(obj, name, value, cset, pad):
+    """A string attribute in an encoding section 18 does not allow:
+    the character set or the padding other than UTF-8 and NUL."""
+    raw = value.encode("utf-8")
+    t = h5py.h5t.C_S1.copy()
+    t.set_size(len(raw))
+    t.set_cset(cset)
+    t.set_strpad(pad)
+    if name in obj.attrs:
+        del obj.attrs[name]
+    a = h5py.h5a.create(obj.id, name.encode(), t,
+                        h5py.h5s.create(h5py.h5s.SCALAR))
+    a.write(np.array(raw, dtype="S%d" % len(raw)), mtype=t)
+
+
+def strings_not_utf8_nulpad(f):
+    string_attr_as(f["keys/mach"], "units", "1", h5py.h5t.CSET_UTF8,
+                   h5py.h5t.STR_SPACEPAD)
+    string_attr_as(f["scalars/cl"], "units", "1", h5py.h5t.CSET_ASCII,
+                   h5py.h5t.STR_NULLPAD)
+
+
+def soft_link_in(where):
+    """A soft link, which a reader never follows (E40), placed in a
+    public group that holds no other link this base would check."""
+    def change(f):
+        g = f[where] if where in f else f.create_group(where)
+        g["ghost"] = h5py.SoftLink("/nothing")
+    return change
+
+
+def shared_draws(f):
+    """Three draws of a field that varies along nothing: the draw axis
+    leads, (draw, node, component)."""
+    draw_3 = scale(f, "draw_3", 3)
+    sup = f["supports/s0"]
+    values = np.array([[[0.1 * k + 0.01 * n] for n in range(N_NODES)]
+                       for k in range(3)])
+    d = dataset(sup["node_arrays"], "pressure_draws", values, "<f8",
+                [draw_3, sup["node"], f["component_1"]])
+    sattr(d, "role", "field")
+    sattr(d, "varies", "none")
+    sattr(d, "units", "Pa")
+    iattr(d, "components", 1)
+    sattr(d, "source", "data")
+    sattr(d, "statistic", "draw")
+
+
+def dictionary_array_of(dtype):
+    """A dictionary dataset of a dtype section 25 does not allow: a
+    numeric array there is little-endian int8, int32, int64 or
+    float64."""
+    def change(f):
+        m1 = f["callables/m1"]
+        d = m1.create_dataset("weights", data=np.array([0.5, 0.25]),
+                              dtype=dtype, track_times=False)
+        d.dims[0].attach_scale(scale(m1, "mestra_weights_d0", 2))
+    return change
+
+
+def unknown_group_with_contents(f):
+    """A root group this version does not know, holding what the
+    byte-level rules would refuse in the public part: an unlimited
+    dimension that is not `row`."""
+    g = f.create_group("extras")
+    events = scale(g, "events", 3, unlimited=True)
+    d = g.create_dataset("log", data=np.arange(3.0), maxshape=(None,),
+                         chunks=(3,), track_times=False)
+    d.dims[0].attach_scale(events)
+
+
+big_endian_dictionary_array = dictionary_array_of(">f8")
+
+
 #: A stored band beside the two-row pressure field: (row, node,
 #: component), one entry per node, the same in both rows.
 PRESSURE_BAND = np.array([[[0.5 + 0.1 * n] for n in range(6)]
@@ -2296,7 +2565,17 @@ PRESSURE_BAND_NEGATIVE[1, 2, 0] = -0.7
 CASES = {
     # the two files of docs/example.md
     "mesh_two_rows": case_mesh_two_rows,
+    "affine_no_keys": case_affine_no_keys,
     "affine_zero_rows": case_affine_zero_rows,
+    "affine_own_repr": mk(
+        affine_base, {"repr": "pressure model fitted on the March runs"},
+        "The affine callable of docs/example.md with a repr line of its "
+        "producer's own rather than the one an implementation would "
+        "make up. A rewrite keeps the line it read.",
+        support_ids={"s0": MESH_SID},
+        codec={"m1": tagged(affine_dict())}),
+    "dictionary_empty_arrays": case_dictionary_empty_arrays,
+    "dictionary_null": case_dictionary_null,
     # the five mappings
     "family_static": case_family_static,
     "cascade_varying_geometry": case_cascade_varying_geometry,
@@ -2314,6 +2593,7 @@ CASES = {
     "derived_displacement": case_derived_displacement,
     "support_kind_none": case_support_kind_none,
     "two_supports_row_varying": case_two_supports_row_varying,
+    "two_supports_one_served": case_two_supports_one_served,
     "notes_and_private": case_notes_and_private,
     "wide_keys": case_wide_keys,
     "band_stored": mk(
@@ -2397,6 +2677,23 @@ CASES = {
         "An array whose varies names a group key the file does not "
         "declare.",
         errors=["E04"], support_ids={"s0": MESH_SID}),
+    "err_e04_unknown_varies": mk(
+        mesh_base, {"pressure_varies": "sideways"},
+        "A field whose varies is none of the three words section 5 "
+        "names. Its shape has as many axes as a row-varying one, so only "
+        "the word itself is wrong.",
+        errors=["E04"], support_ids={"s0": MESH_SID}),
+    "err_e04_served_varies": mk(
+        affine_base, {"pressure_varies": "sideways"},
+        "A slot a callable serves whose varies is none of the three words "
+        "section 5 names. It holds no data, so only the word can be "
+        "checked, and it is wrong.",
+        errors=["E04"], support_ids={"s0": MESH_SID}),
+    "err_e04_empty_varies": mk(
+        mesh_base, {"pressure_varies": ""},
+        "A field whose varies is the empty string, which is a value and "
+        "not one of the three section 5 names.",
+        errors=["E04"], support_ids={"s0": MESH_SID}),
     "err_e05": mk(
         mesh_base, {"pressure": PRESSURE_2[:, :5, :]},
         "A node array of five nodes on a support of six.",
@@ -2409,6 +2706,16 @@ CASES = {
         "support to be reachable at all.",
         errors=["E06"], warnings=["W05"],
         support_ids={"s0": MESH_SID, "s1": S1_SID}),
+    "err_e08_negative_nodes": mk(
+        lambda f, o: (case_support_kind_none(f),
+                      f["supports/s0"].attrs.__setitem__(
+                          "n_nodes", np.int64(-1))),
+        {},
+        "The support of kind none with n_nodes set to -1 and its digest "
+        "left as it was. Section 24 hashes n_nodes as an int64, so the "
+        "stored digest no longer matches.",
+        errors=["E08"],
+        support_ids={"s0": support_id(-1)}),
     "err_e08": mk(
         mesh_base, {"support_id": WRONG_SID},
         "A support_id that does not match the stored arrays; the "
@@ -2477,6 +2784,21 @@ CASES = {
         mesh_base, {"cl_values": [0.25, 0.55, 0.75]},
         "A stored scalar of three elements in a file of two rows.",
         errors=["E16"], support_ids={"s0": MESH_SID}),
+    "err_e16_row_support": mk(
+        two_support_base, {"n_rows": 3, "row_support": [0, 1, 0, 1]},
+        "A /row_support of four values in a file of three rows.",
+        errors=["E16"], warnings=["W05"],
+        support_ids={"s0": MESH_SID, "s1": S1_SID}),
+    "err_e16_support_rows": mk(
+        lambda f, o: (case_two_supports_row_varying(f),
+                      f["row_support"].__setitem__(slice(None), [0, 1, 1])),
+        {},
+        "The row-varying file of two supports with its third row moved "
+        "from s0 to s1, so s0 holds two entries for the one row now on it "
+        "and s1 one for two. Its fields still line up with their "
+        "support-local row scales; it is /row_support that disagrees.",
+        errors=["E16"], warnings=["W05"],
+        support_ids={"s0": MESH_SID, "s1": S1_SID}),
     "err_e17": mk(
         mesh_base, {"writer": None},
         "The root writer attribute is missing.",
@@ -2488,11 +2810,67 @@ CASES = {
         "not to look. A validator sees the missing root attribute as "
         "E39; E18 is what a writer review adds to it.",
         errors=["E18", "E39"], support_ids={"s0": MESH_SID}),
+    "err_e18_role": mk(
+        mesh_base, {"extra_keys": [("flow", "regime", [0.0, 1.0], "<f8",
+                                    [("units", "1")])],
+                    "private_gen": True},
+        "A key whose role is a word section 3 does not have, in a file "
+        "that also carries /private. E18 goes beside any E02, not only "
+        "beside a role that is absent.",
+        errors=["E02", "E18"], support_ids={"s0": MESH_SID}),
     "err_e19": mk(
         mesh_base, {"cl_units_vlen": True},
         "A units attribute stored as a variable-length string, which "
         "section 18 forbids anywhere in the file.",
         errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_callable_type": mk(
+        then(affine_base, lambda f: string_attr_as(
+            f["callables/m1"], "type", "affine", h5py.h5t.CSET_ASCII,
+            h5py.h5t.STR_NULLPAD)), {},
+        "A callable whose type attribute has the ASCII character set. "
+        "type is an attribute section 18 encodes like any other string.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_vlen_role": mk(
+        then(mesh_base, lambda f: (
+            f["keys/mach"].attrs.__delitem__("role"),
+            vattr(f["keys/mach"], "role", "condition"))), {},
+        "A key whose role is stored as a variable-length string. That is "
+        "E19; the role is there, so it is not E02 as well.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_big_endian": mk(
+        then(mesh_base, lambda f: big_endian_attr(
+            f["supports/s0"], "n_cells", 2)),
+        {}, "A support's n_cells stored as a big-endian integer. Section "
+        "18 names little-endian int64, so the value is refused whatever "
+        "it decodes to.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_string_encoding": mk(
+        then(mesh_base, strings_not_utf8_nulpad), {},
+        "Two units attributes that are fixed-length strings but not the "
+        "encoding section 18 names: one space padded, one with the ASCII "
+        "character set.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e20_big_endian": mk(
+        mesh_base, {"cl_dtype": ">f8"},
+        "A scalar stored as big-endian float64. Section 19 stores every "
+        "numeric dataset little-endian.",
+        errors=["E20"], support_ids={"s0": MESH_SID}),
+    "err_e20_unsigned_key": mk(
+        mesh_base, {"member_dtype": "<u4"},
+        "A group key stored as uint32. Section 19 gives category ids "
+        "int32 or int64, which are signed.",
+        errors=["E20"], support_ids={"s0": MESH_SID}),
+    "err_e20_big_endian_key": mk(
+        mesh_base, {"member_dtype": ">i4"},
+        "A group key stored as big-endian int32.",
+        errors=["E20"], support_ids={"s0": MESH_SID}),
+    "err_e20_numeric_table": mk(
+        then(mesh_base, lambda f: f["categories"].create_dataset(
+            "zone", data=np.array([0.0, 1.0]), track_times=False)), {},
+        "A category table of float64 values with no dimension scale. Its "
+        "dtype is E20, and it is still a public dataset, so the missing "
+        "scale is E25.",
+        errors=["E20", "E25"], support_ids={"s0": MESH_SID}),
     "err_e20": mk(
         mesh_base, {"pressure_dtype": "<f4"},
         "A field stored as float32, which is not allowed anywhere.",
@@ -2518,6 +2896,16 @@ CASES = {
         errors=["E23"],
         support_ids={"s0": support_id(N_NODES, E23_TYPES, E23_OFFSETS,
                                       CELL_CONNECTIVITY)}),
+    "err_e23_counts": mk(
+        mesh_base, {"cell_offsets": np.array([0, 4, 9], dtype="<i8")},
+        "Cell offsets whose last value is not the length of the "
+        "connectivity, which also gives the second cell five nodes. A "
+        "node count comes from the offsets, so offsets that are E23 "
+        "decide no E22.",
+        errors=["E23"],
+        support_ids={"s0": support_id(N_NODES, CELL_TYPES,
+                                      np.array([0, 4, 9]),
+                                      CELL_CONNECTIVITY)}),
     "err_e24": mk(
         mesh_base, {"cell_connectivity": E24_CONN},
         "A connectivity value equal to the node count, one past the "
@@ -2528,6 +2916,39 @@ CASES = {
     "err_e25": mk(
         mesh_base, {"pressure_no_component_scale": True},
         "The component axis of a field carries no dimension scale.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_category_table": mk(
+        then(mesh_base, table_on_another_scale), {},
+        "A category table attached to another table's dimension scale.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_dangling": mk(
+        then(mesh_base, scale_deleted), {},
+        "The coordinates' component scale deleted after it was attached, "
+        "so the axis carries a reference to nothing.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_dictionary": mk(
+        then(affine_base, dictionary_scale_of_another), {"type": "example"},
+        "A dictionary dataset whose axis carries a scale named for "
+        "another dataset.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_slot_group_dataset": mk(
+        then(affine_base, lambda f: f["scalars/cl"].create_dataset(
+            "extra", data=np.arange(2.0), track_times=False)), {},
+        "A dataset with no dimension scale inside a slot a callable "
+        "serves. It is a public dataset, so the byte-level rules hold.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_unknown_dataset": mk(
+        then(mesh_base, dataset_without_scale), {},
+        "A dataset this version does not know, inside a support group, "
+        "with no dimension scale. It is a public object, so the "
+        "byte-level rules are checked on it. W11 is about an attribute "
+        "or a group, so a dataset draws none.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_notes_dataset": mk(
+        then(mesh_base, lambda f: f.create_group("notes").create_dataset(
+            "history", data=np.arange(3.0), track_times=False)), {},
+        "A dataset with no dimension scale inside /notes. /notes is "
+        "public, so the byte-level rules are checked on it.",
         errors=["E25"], support_ids={"s0": MESH_SID}),
     "err_e26": mk(
         mesh_base, {"region_raw": [b"in\x00et", b"outlet"]},
@@ -2558,15 +2979,52 @@ CASES = {
         "A field declaring two components over a component dimension "
         "of length one.",
         errors=["E31"], support_ids={"s0": MESH_SID}),
+    "err_e31_missing": mk(
+        then(mesh_base, lambda f: f["supports/s0/node_arrays/pressure"]
+             .attrs.__delitem__("components")), {},
+        "A field with no components attribute, which section 14 makes "
+        "E31 and not E39.",
+        errors=["E31"], support_ids={"s0": MESH_SID}),
+    "err_e31_negative": mk(
+        mesh_base, {"pressure_components": -1},
+        "A field declaring -1 components over a component dimension of "
+        "length one.",
+        errors=["E31"], support_ids={"s0": MESH_SID}),
     "err_e32": mk(
         affine_base, {"type": "example", "zero_d_key": True},
         "A callable dictionary holding a zero-dimensional dataset, "
         "which section 25 says must be written as an attribute "
         "instead.",
         errors=["E32"], support_ids={"s0": MESH_SID}),
+    "err_e32_big_endian": mk(
+        then(affine_base, big_endian_dictionary_array),
+        {"type": "example"},
+        "A callable dictionary holding a big-endian float64 array, "
+        "which section 25 does not allow: a numeric array there is "
+        "little-endian.",
+        errors=["E32"], support_ids={"s0": MESH_SID}),
+    "err_e32_float32": mk(
+        then(affine_base, dictionary_array_of("<f4")),
+        {"type": "example"},
+        "A callable dictionary holding a float32 array. Section 19 sends "
+        "a dictionary dataset to section 25, so it is E32 and not E20, "
+        "and E32 does not stop a read.",
+        errors=["E32"], support_ids={"s0": MESH_SID}),
     "err_e33": mk(
         mesh_base, {"mach_name": "mestra_mach"},
         "A producer-chosen name beginning with the reserved prefix.",
+        errors=["E33"], support_ids={"s0": MESH_SID}),
+    "err_e33_newline": mk(
+        mesh_base, {"mach_name": "mach\n"},
+        "A key whose name ends in a newline, which is not a character a "
+        "netCDF-4 name may hold.",
+        errors=["E33"], support_ids={"s0": MESH_SID}),
+    "err_e33_dictionary": mk(
+        then(affine_base, lambda f: sattr(f["callables/m1/outputs/cl"],
+                                          "fitted@march", "yes")),
+        {"type": "example"},
+        "A dictionary key that is not a legal netCDF-4 name: section 17 "
+        "holds every key to the rule of section 18.",
         errors=["E33"], support_ids={"s0": MESH_SID}),
     "err_e34": mk(
         mesh_base, {"n_group": 3, "coords": MEMBER_COORDS_3},
@@ -2581,6 +3039,12 @@ CASES = {
     "err_e36": mk(
         mesh_base, {"cl_source": "model"},
         "A source that is neither data nor callable:<id>.",
+        errors=["E36"], support_ids={"s0": MESH_SID}),
+    "err_e36_group": mk(
+        affine_base, {"cl_source": "row=99"},
+        "A slot stored as a group whose source is neither data nor "
+        "callable:<id>. That is E36; it is not E30, which is about a "
+        "source that says data, and it does not stop a read.",
         errors=["E36"], support_ids={"s0": MESH_SID}),
     "err_e37": mk(
         two_support_base, {"n_rows": 0, "aligned": True},
@@ -2600,6 +3064,89 @@ CASES = {
         "An axis support carrying a cell_types dataset and a cell "
         "dimension.",
         errors=["E38"], support_ids={"s0": E_AXIS_SID}),
+    "draws_shared": mk(
+        then(mesh_base, shared_draws), {},
+        "Three draws of a field that varies along nothing, so the draw "
+        "axis leads: (draw, node, component). A rewrite keeps that "
+        "shape.",
+        support_ids={"s0": MESH_SID},
+        probes=[probe("/supports/s0/node_arrays/pressure_draws",
+                      np.array([[[0.1 * k + 0.01 * n]
+                                 for n in range(N_NODES)]
+                                for k in range(3)]),
+                      draw=2, node=4, component=0)]),
+    "private_as_found": mk(
+        then(mesh_base, private_as_found), {},
+        "A /private holding an ASCII null-terminated string attribute, "
+        "an int32 attribute and a big-endian dataset with attributes of "
+        "its own. None of it is checked, and a rewrite carries every "
+        "attribute and dataset with the type it was found with.",
+        support_ids={"s0": MESH_SID}),
+    "zero_rows_unaligned": mk(
+        two_support_base, {"n_rows": 0, "aligned": False,
+                           "row_support": np.zeros(0, dtype="<i4")},
+        "Two supports and no rows. The file is unaligned, so it carries "
+        "/row_support, which is empty rather than absent, and no row "
+        "references either support.",
+        warnings=["W05", "W15"],
+        support_ids={"s0": MESH_SID, "s1": S1_SID}),
+    "zero_rows_stored": mk(
+        mesh_base, {"n_rows": 0, "mach_values": np.zeros(0),
+                    "member_values": np.zeros(0, dtype="<i4"),
+                    "cl_values": np.zeros(0),
+                    "pressure": np.zeros((0, 6, 1))},
+        "No rows, and stored row-varying slots of shape (0, ...): the "
+        "keys, the scalar and a (row, node, component) field with a "
+        "zero-length row axis. Its shape is (0, 6, 1) and stays that "
+        "through a rewrite. Neither group category is used.",
+        warnings=["W07"], support_ids={"s0": MESH_SID}),
+    "err_e39_kind": mk(
+        lambda f, o: (case_support_kind_none(f),
+                      f["supports/s0"].attrs.__delitem__("kind")),
+        {},
+        "The support of kind none without its kind. That is E39, and no "
+        "rule that depends on the kind applies to a support that does not "
+        "say it: it is not taken for a mesh missing its cells and its "
+        "coordinates. Its digest is n_nodes alone whatever the kind.",
+        errors=["E39"], support_ids={"s0": NONE_SID}),
+    "err_e39_varies": mk(
+        then(mesh_base, lambda f: f["supports/s0/node_arrays/pressure"]
+             .attrs.__delitem__("varies")), {},
+        "A row-varying field without its varies. That is E39, and there "
+        "is then nothing to hold its leading dimension against, so it is "
+        "not E04 as well.",
+        errors=["E39"], support_ids={"s0": MESH_SID}),
+    "err_e40_dictionary": mk(
+        then(affine_base, soft_link_in("callables/m1/outputs")), {},
+        "A soft link inside a callable's dictionary. The dictionary is "
+        "public, and a reader follows no link that is not hard.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e40_notes": mk(
+        then(mesh_base, soft_link_in("notes")), {},
+        "A soft link inside /notes, which is public and otherwise holds "
+        "only attributes.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e40_root": mk(
+        then(mesh_base, soft_link_in("/")), {},
+        "A soft link at the root of the file.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e40_slot_group": mk(
+        then(affine_base, soft_link_in("scalars/cl")), {},
+        "A soft link inside a slot a callable serves, which is a group "
+        "carrying the slot's attributes and nothing else.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e40_support": mk(
+        then(mesh_base, soft_link_in("supports/s0")), {},
+        "A soft link inside a support group, beside its cell arrays.",
+        errors=["E40"], support_ids={"s0": MESH_SID}),
+    "err_e41_support_dataset": mk(
+        then(mesh_base, lambda f: f["supports"].create_dataset(
+            "s1", data=np.arange(3.0), track_times=False)), {},
+        "A dataset beside the one support under /supports. It is not a "
+        "support, so the file still declares one and is aligned; it is "
+        "an object a reader cannot read as one (E41), and a public "
+        "dataset with no dimension scale (E25).",
+        errors=["E25", "E41"], support_ids={"s0": MESH_SID}),
     "err_e42": mk(
         mesh_base, {"plain_scales": ("component_1",)},
         "A dimension scale created with the library's default "
@@ -2668,6 +3215,13 @@ CASES = {
         "A weight array that does not say it was recomputed from the "
         "connectivity.",
         warnings=["W06"], support_ids={"s0": MESH_SID}),
+    "warn_w06_false": mk(
+        mesh_base, {"weight": True, "weight_recomputed": False,
+                    "weight_recomputed_false": True},
+        "A weight array whose recomputed attribute is present and false. "
+        "It is not marked as recomputed, so W06 holds as it does when the "
+        "attribute is absent.",
+        warnings=["W06"], support_ids={"s0": MESH_SID}),
     "warn_w07": mk(
         mesh_base, {"member_cats": ["wing_a", "wing_b", "wing_c"],
                     "n_group": 3, "coords": MEMBER_COORDS_3},
@@ -2689,6 +3243,21 @@ CASES = {
                     "unknown_root_group": True},
         "A root attribute and a root group no version 0 reader knows, "
         "both of which must be ignored and reported.",
+        warnings=["W11"], support_ids={"s0": MESH_SID}),
+    "warn_w11_contents": mk(
+        then(mesh_base, unknown_group_with_contents), {},
+        "A root group this version does not know, holding an unlimited "
+        "dimension that is not row. The group is W11 and is otherwise "
+        "left alone (section 14), so what it holds is not E43.",
+        warnings=["W11"], support_ids={"s0": MESH_SID}),
+    "warn_w11_support_contents": mk(
+        then(mesh_base, lambda f: f["supports/s0"].create_group("extras")
+             .create_dataset("quality", data=np.arange(6.0),
+                             track_times=False)
+             .dims[0].attach_scale(f["supports/s0/node"])), {},
+        "A group this version does not know inside a support, holding a "
+        "dataset on the support's node dimension. It is W11, nothing in "
+        "it is checked, and a rewrite carries it whole.",
         warnings=["W11"], support_ids={"s0": MESH_SID}),
     "warn_w12": mk(
         mesh_base, {"pressure_chunks": (1, 6, 1)},

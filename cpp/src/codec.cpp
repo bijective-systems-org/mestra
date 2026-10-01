@@ -44,7 +44,14 @@ std::string scale_name(const std::string& dataset, std::size_t axis) {
 }  // namespace
 
 Dict read_dict_group(const File& f, const std::string& path, bool top_level,
-                     int depth) {
+                     int depth, std::vector<Finding>* left_out) {
+  // E32 is semantic: listed when the caller keeps a list, thrown when
+  // it does not.
+  const auto unrepresentable = [&](const std::string& child,
+                                   const std::string& why) {
+    if (left_out == nullptr) throw Error("E32", "\"" + child + "\" " + why);
+    left_out->push_back({"E32", child, why});
+  };
   if (depth >= kMaxDictDepth) {
     throw Error("E41", "\"" + path + "\" is nested deeper than this reader "
                                       "walks");
@@ -84,24 +91,24 @@ Dict read_dict_group(const File& f, const std::string& path, bool top_level,
                              "; a reader never follows one");
     }
     if (m.is_group) {
-      d.set(m.name,
-            Value::dict(read_dict_group(f, child, false, depth + 1)));
+      d.set(m.name, Value::dict(read_dict_group(f, child, false, depth + 1,
+                                                left_out)));
       continue;
     }
     if (!m.is_dataset) continue;
     const DsetInfo info = f.dataset_info(child);
     if (info.shape.empty()) {
-      throw Error("E32",
-                  "\"" + child +
-                      "\" is a zero-dimensional dataset, which section 25 "
+      unrepresentable(child,
+                      "is a zero-dimensional dataset, which section 25 "
                       "requires to be written as an attribute");
+      continue;
     }
     Array a;
     a.shape.assign(info.shape.begin(), info.shape.end());
     DType dtype = DType::Float64;
     if (!dtype_of(info.type, &dtype)) {
-      throw Error("E32", "\"" + child + "\" has a dtype no dictionary may "
-                                        "hold");
+      unrepresentable(child, "has a dtype no dictionary may hold");
+      continue;
     }
     a.dtype = dtype;
     if (dtype == DType::String) {
@@ -194,11 +201,16 @@ void write_dict_group(File& f, const std::string& path, const Dict& d,
             a.shape.end();
         // Section 25: every zero-length axis is created with an
         // unlimited maximum, so that the dimension is legal in
-        // netCDF-4.
+        // netCDF-4.  Only that axis: E43 allows no other dimension
+        // but `row` to be unlimited, so an axis of length 2 beside it
+        // keeps its length as its maximum.
         std::vector<hsize_t> maxshape;
         std::vector<hsize_t> chunk;
         if (empty) {
-          maxshape.assign(shape.size(), H5S_UNLIMITED);
+          maxshape = shape;
+          for (hsize_t& e : maxshape) {
+            if (e == 0) e = H5S_UNLIMITED;
+          }
           chunk.assign(shape.size(), 1);
         }
         // A dictionary dataset is not row dimensioned, so section 23

@@ -141,6 +141,9 @@ function read_dict_dataset(d::HDF5.Dataset;
     T in (Int32, Int64, Float64) ||
         throw(MestraError("E32",
             "a dataset dtype the codec does not allow: $(T)"))
+    ti.little || throw(MestraError("E32",
+        "a big-endian dataset; section 25 stores a numeric array " *
+        "little-endian"))
     return c_to_julia(raw, T, cdims)
 end
 
@@ -227,7 +230,9 @@ function write_dict_array(g, name::String, v::AbstractArray)
     end
     cdims = collect(size(v))
     empty = any(==(0), cdims)
-    cmax = empty ? fill(-1, length(cdims)) : copy(cdims)
+    # Section 25 makes each zero-length axis unlimited, and E43 allows
+    # that axis and no other.
+    cmax = [n == 0 ? -1 : n for n in cdims]
     chunk = empty ? fill(1, length(cdims)) : nothing
     d = create_raw_dataset(g, name, dt, cdims, cmax, raw; chunk = chunk)
     dict_scales!(g, name, cdims, d)

@@ -520,6 +520,10 @@ def _write_callables(ds: Dataset, f: h5py.File) -> None:
 
 def _repr_line(obj: Any) -> str | None:
     """The optional one-line description of section 10."""
+    if getattr(obj, "_repr_read", False):
+        # Read from a file: the line it had, or none.
+        line = getattr(obj, "_repr", None)
+        return line if line is None or "\n" not in line else None
     if type(obj).__repr__ is object.__repr__:
         return None
     line = repr(obj)

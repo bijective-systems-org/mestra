@@ -40,7 +40,9 @@ def is_legal_name(name: str) -> bool:
     """
     if not name:
         return False
-    return bool(_LEGAL.match(name))
+    # fullmatch: `$` in a pattern also matches before a final newline,
+    # so a name ending in one would pass.
+    return bool(_LEGAL.fullmatch(name))
 
 
 def is_reserved(name: str) -> bool:
