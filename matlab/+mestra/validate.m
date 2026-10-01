@@ -1746,6 +1746,12 @@ function checkUnknown(ctx)
     if strcmp(H5.childType(ctx.root, 'notes'), 'group')
         notes = H5G.open(ctx.root, 'notes');
         linksIn(ctx, notes, '/notes');
+        % /notes is public: a dataset there is held to the byte-level
+        % rules as any public dataset is.
+        for name = H5.children(notes)
+            guard(ctx, ['/notes/' name{1}], @() checkUnknownDataset( ...
+                ctx, notes, name{1}, ['/notes/' name{1}]));
+        end
         H5G.close(notes);
     end
     known = mestra.internal.Reader.ROOT_ATTRS;

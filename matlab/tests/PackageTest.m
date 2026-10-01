@@ -584,6 +584,16 @@ classdef PackageTest < matlab.unittest.TestCase
             d = mestra.read(path);
             testCase.verifyEqual(d.scalar('cl').source, 'row=99');
         end
+
+        function aDatasetInNotesIsPublic(testCase)
+        %aDatasetInNotesIsPublic  /notes is public, so a dataset there
+        %   with no dimension scale is E25 and a strict read refuses
+        %   it.  Neither the validator nor the reader looked.
+            path = fullfile(corpusRoot(), 'err_e25_notes_dataset', ...
+                            'case.mes');
+            testCase.verifyEqual(mestra.validate(path).errors, {'E25'});
+            testCase.verifyError(@() mestra.read(path), 'mestra:E25');
+        end
     end
 
     methods (Static)

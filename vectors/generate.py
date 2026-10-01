@@ -2891,6 +2891,12 @@ CASES = {
         "byte-level rules are checked on it. W11 is about an attribute "
         "or a group, so a dataset draws none.",
         errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_notes_dataset": mk(
+        then(mesh_base, lambda f: f.create_group("notes").create_dataset(
+            "history", data=np.arange(3.0), track_times=False)), {},
+        "A dataset with no dimension scale inside /notes. /notes is "
+        "public, so the byte-level rules are checked on it.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
     "err_e26": mk(
         mesh_base, {"region_raw": [b"in\x00et", b"outlet"]},
         "A category table entry with a NUL byte in the middle of the "

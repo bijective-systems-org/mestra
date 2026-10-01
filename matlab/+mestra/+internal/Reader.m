@@ -255,8 +255,21 @@ classdef Reader
                 if strcmp(which{1}, 'notes')
                     % /notes is public, so a link among its members is
                     % E40 (section 14), and the walk's own note of it
-                    % is not a second finding.
+                    % is not a second finding; a dataset there is held
+                    % to the byte-level rules like any public dataset.
                     mestra.internal.Reader.noteLinks(d, g, '/notes');
+                    for name = H5.children(g)
+                        if ~strcmp(H5.childType(g, name{1}), 'dataset')
+                            continue
+                        end
+                        did = H5D.open(g, name{1});
+                        info = H5.dsetInfo(did);
+                        if ~info.isScale
+                            mestra.internal.Reader.inspect(did, info, d, ...
+                                ['/notes/' name{1}], scales);
+                        end
+                        H5D.close(did);
+                    end
                     for name = H5.children(g)
                         if any(strcmp(H5.childType(g, name{1}), ...
                                       {'soft', 'external'}))

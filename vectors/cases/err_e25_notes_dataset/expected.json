@@ -1,0 +1,1 @@
+{"codec":{},"description":"A dataset with no dimension scale inside /notes. /notes is public, so the byte-level rules are checked on it.","evaluation":[],"probes":[],"support_ids":{"s0":"96df395d80ef548444562292de441525ba0b5c8ad00a8dadff19a19c943936c7"},"validator":{"errors":["E25"],"warnings":[]}}
