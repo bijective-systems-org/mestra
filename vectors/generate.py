@@ -2373,6 +2373,23 @@ def soft_link_in(where):
     return change
 
 
+def shared_draws(f):
+    """Three draws of a field that varies along nothing: the draw axis
+    leads, (draw, node, component)."""
+    draw_3 = scale(f, "draw_3", 3)
+    sup = f["supports/s0"]
+    values = np.array([[[0.1 * k + 0.01 * n] for n in range(N_NODES)]
+                       for k in range(3)])
+    d = dataset(sup["node_arrays"], "pressure_draws", values, "<f8",
+                [draw_3, sup["node"], f["component_1"]])
+    sattr(d, "role", "field")
+    sattr(d, "varies", "none")
+    sattr(d, "units", "Pa")
+    iattr(d, "components", 1)
+    sattr(d, "source", "data")
+    sattr(d, "statistic", "draw")
+
+
 def big_endian_dictionary_array(f):
     """A dictionary dataset stored big-endian, which section 25 does
     not allow: a numeric array there is little-endian."""
@@ -2724,6 +2741,17 @@ CASES = {
         "An axis support carrying a cell_types dataset and a cell "
         "dimension.",
         errors=["E38"], support_ids={"s0": E_AXIS_SID}),
+    "draws_shared": mk(
+        then(mesh_base, shared_draws), {},
+        "Three draws of a field that varies along nothing, so the draw "
+        "axis leads: (draw, node, component). A rewrite keeps that "
+        "shape.",
+        support_ids={"s0": MESH_SID},
+        probes=[probe("/supports/s0/node_arrays/pressure_draws",
+                      np.array([[[0.1 * k + 0.01 * n]
+                                 for n in range(N_NODES)]
+                                for k in range(3)]),
+                      draw=2, node=4, component=0)]),
     "zero_rows_stored": mk(
         mesh_base, {"n_rows": 0, "mach_values": np.zeros(0),
                     "member_values": np.zeros(0, dtype="<i4"),

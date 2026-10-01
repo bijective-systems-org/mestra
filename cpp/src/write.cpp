@@ -544,7 +544,13 @@ void check_dataset_shapes(const Dataset& d) {
                                            ? "/node_arrays/"
                                            : "/cell_arrays/")) +
                                a->name;
-      const std::string want = a->varies == "none" ? axis : a->varies;
+      // A slot holding draws carries the draw axis first when nothing
+      // leads it (section 19: (row | group | -, [draw], node | cell,
+      // component)), so a shared set of draws starts with `draw`.
+      const bool draws = a->statistic.has_value() && *a->statistic == "draw";
+      const std::string want =
+          a->varies == "none" ? (draws ? std::string("draw") : axis)
+                              : a->varies;
       if (a->data.dims.front() != want) {
         throw Error(
             "E04",
