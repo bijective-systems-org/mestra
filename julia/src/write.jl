@@ -555,10 +555,10 @@ function write_support(parent, ds::Dataset, s::Support, scales,
     write_string_attr(g, "support_id", s.support_id)
 
     # Section 21: a support-local `row`, only in an unaligned file and
-    # only where the support carries an array that varies along it.
+    # only where the support carries an array that varies along it.  A
+    # slot a callable serves is such an array though it holds no data.
     if !ds.aligned
-        varies_row = any(x -> x.varies == "row" && !is_callable_slot(x),
-                         support_slots(s))
+        varies_row = any(x -> x.varies == "row", support_slots(s))
         varies_row && (local_scales["row"] =
             create_scale(g, "row", local_rows; unlimited = true))
     end

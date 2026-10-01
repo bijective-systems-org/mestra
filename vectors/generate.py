@@ -2084,10 +2084,14 @@ def case_support_kind_none(f):
                 probe("/keys/mach", mach, row=0)])
 
 
-def case_two_supports_row_varying(f):
+def case_two_supports_row_varying(f, served=False):
     """Section 22: a row-varying array in an unaligned file holds one
     entry per row referencing its support, in the file's row order,
-    over the support-local `row` dimension of section 21."""
+    over the support-local `row` dimension of section 21.
+
+    With `served`, the field on s1 is a slot a callable serves, which
+    holds no data. s1 still carries an array with varies = row, so it
+    still carries its own `row` scale (section 21)."""
     n_rows = 3
     row_support = [0, 1, 0]
     mach = np.array([0.40, 0.50, 0.60])
@@ -2151,13 +2155,34 @@ def case_two_supports_row_varying(f):
     sattr(c, "units", "m")
     iattr(c, "components", 2)
     sattr(c, "source", "data")
-    a = dataset(sup1.create_group("node_arrays"), "pressure", p1,
-                "<f8", [row1, node1, component_1], n_rows=1)
+    if served:
+        a = sup1.create_group("node_arrays").create_group("pressure")
+    else:
+        a = dataset(sup1.create_group("node_arrays"), "pressure", p1,
+                    "<f8", [row1, node1, component_1], n_rows=1)
     sattr(a, "role", "field")
     sattr(a, "varies", "row")
     sattr(a, "units", "Pa")
     iattr(a, "components", 1)
-    sattr(a, "source", "data")
+    sattr(a, "source", "callable:m1" if served else "data")
+    if served:
+        sattr(a, "output", "pressure")
+        m1 = f.create_group("callables").create_group("m1")
+        sattr(m1, "type", "affine")
+        strings(m1, "keys", ["mach"], scale(m1, "mestra_keys_d0", 1))
+        out = m1.create_group("outputs").create_group("pressure")
+        codec_array(out, "A", SERVED_S1["A"])
+        codec_array(out, "b", SERVED_S1["b"])
+        codec_array(out, "shape", SERVED_S1["shape"])
+        return expect(
+            "Two supports, three rows. s0 carries a stored row-varying "
+            "field; the field on s1 is served by a callable and holds no "
+            "data, and s1 still carries a support-local row scale, "
+            "because it carries an array with varies = row.",
+            warnings=["W05"],
+            support_ids={"s0": MESH_SID, "s1": S1_SID},
+            probes=[probe("/supports/s0/node_arrays/pressure", p0,
+                          row=1, node=2, component=0)])
 
     return expect(
         "Three rows over two supports with a row-varying field on "
@@ -2180,6 +2205,19 @@ def case_two_supports_row_varying(f):
                   node=3, component=0),
             probe("/scalars/cl", cl, row=2),
         ])
+
+
+#: The affine output that serves s1's field in the served variant:
+#: one key, four nodes, one component.
+SERVED_S1 = {
+    "A": np.array([[1.0], [2.0], [3.0], [4.0]]),
+    "b": np.array([0.0, 0.5, 1.0, 1.5]),
+    "shape": np.array([4, 1], dtype="<i8"),
+}
+
+
+def case_two_supports_one_served(f):
+    return case_two_supports_row_varying(f, served=True)
 
 
 def case_notes_and_private(f):
@@ -2430,6 +2468,7 @@ CASES = {
     "derived_displacement": case_derived_displacement,
     "support_kind_none": case_support_kind_none,
     "two_supports_row_varying": case_two_supports_row_varying,
+    "two_supports_one_served": case_two_supports_one_served,
     "notes_and_private": case_notes_and_private,
     "wide_keys": case_wide_keys,
     "band_stored": mk(
