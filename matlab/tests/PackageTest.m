@@ -572,6 +572,18 @@ classdef PackageTest < matlab.unittest.TestCase
                                      name{1});
             end
         end
+
+        function anUnknownSourceOnAGroupIsE36AndReads(testCase)
+        %anUnknownSourceOnAGroupIsE36AndReads  E30 is a slot whose
+        %   source says data stored as a group; a source that is
+        %   neither word is E36, which is semantic and does not stop a
+        %   read.  The reader called every group not served by a
+        %   callable E30 and refused the file.
+            path = fullfile(corpusRoot(), 'err_e36_group', 'case.mes');
+            testCase.verifyEqual(mestra.validate(path).errors, {'E36'});
+            d = mestra.read(path);
+            testCase.verifyEqual(d.scalar('cl').source, 'row=99');
+        end
     end
 
     methods (Static)

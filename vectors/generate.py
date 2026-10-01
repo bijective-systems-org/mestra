@@ -2964,6 +2964,12 @@ CASES = {
         mesh_base, {"cl_source": "model"},
         "A source that is neither data nor callable:<id>.",
         errors=["E36"], support_ids={"s0": MESH_SID}),
+    "err_e36_group": mk(
+        affine_base, {"cl_source": "row=99"},
+        "A slot stored as a group whose source is neither data nor "
+        "callable:<id>. That is E36; it is not E30, which is about a "
+        "source that says data, and it does not stop a read.",
+        errors=["E36"], support_ids={"s0": MESH_SID}),
     "err_e37": mk(
         two_support_base, {"n_rows": 0, "aligned": True},
         "Two supports declared with aligned = true. W05 comes with "

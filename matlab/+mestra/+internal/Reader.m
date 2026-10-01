@@ -1005,7 +1005,9 @@ classdef Reader
             if isempty(source), return, end
             servedByCallable = numel(source) > 9 && ...
                                strncmp(source, 'callable:', 9);
-            if isGroup && ~servedByCallable
+            % A source that is neither word is E36 and says nothing
+            % about which kind of slot was meant.
+            if isGroup && strcmp(source, 'data')
                 mestra.internal.Reader.note(d, path, 'E30', sprintf( ...
                     ['source is "%s" and the slot is a group; a slot ' ...
                      'holding data is a dataset'], source));
