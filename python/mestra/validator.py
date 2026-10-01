@@ -1204,6 +1204,10 @@ class _FileValidator:
                                          "float64"):
                 self.error("E32", path, "%s is not a dtype a dictionary "
                                         "may hold" % member.dtype)
+            elif member.dtype.byteorder == ">":
+                self.error("E32", path, "a numeric array in a dictionary "
+                                        "is stored little-endian, and "
+                                        "this one is big-endian")
         for name in _names(group):
             if name.startswith(RESERVED_PREFIX):
                 continue

@@ -269,3 +269,29 @@ def test_a_bound_that_is_not_finite(tmp_path):
             "level", np.float64("inf"))
     report = mestra.validate(path)
     assert report.error_ids == ["E12", "E19"]
+
+
+def test_a_big_endian_array_in_a_dictionary(tmp_path):
+    """Section 25 stores a numeric array in a dictionary
+    little-endian. A big-endian float64 has the name float64 in numpy,
+    so a check of the dtype's name alone let it through; it is E32,
+    and the file still reads, since E32 is not structural."""
+    path = _case(tmp_path, "callable_two_slots", "dictionary_big_endian")
+    with h5py.File(path, "r+") as f:
+        group = f["/callables/m2"]
+        data = group.create_dataset("weights", data=[0.5, 0.25],
+                                    dtype=">f8", track_times=False)
+        dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+        dcpl.set_attr_creation_order(h5py.h5p.CRT_ORDER_TRACKED |
+                                     h5py.h5p.CRT_ORDER_INDEXED)
+        dcpl.set_obj_track_times(False)
+        dcpl.set_chunk((2,))
+        dim = h5py.Dataset(h5py.h5d.create(
+            group.id, b"mestra_weights_d0", h5py.h5t.IEEE_F32BE,
+            h5py.h5s.create_simple((2,), (2,)), dcpl=dcpl))
+        dim.make_scale("This is a netCDF dimension but not a netCDF "
+                       "variable.         2")
+        data.dims[0].attach_scale(dim)
+    report = mestra.validate(path)
+    assert report.error_ids == ["E32"]
+    assert [f.where for f in report.errors] == ["/callables/m2/weights"]

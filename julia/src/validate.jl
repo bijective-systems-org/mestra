@@ -395,7 +395,7 @@ function check_attr_types!(v::Validator, path::String,
             end
         elseif at.ti.class === :int
             if expected === :bool
-                if at.ti.size != 1
+                if at.ti.size != 1 || !at.ti.signed
                     report!(v, "E19", path, "boolean `$(name)` is not int8")
                 elseif !(at.value isa Bool)
                     # Section 18: "value 0 for false and 1 for true.
@@ -410,15 +410,17 @@ function check_attr_types!(v::Validator, path::String,
                         "and no other")
                 end
             elseif expected === :int
-                (at.ti.size == 8 && at.ti.signed) ||
-                    report!(v, "E19", path, "integer `$(name)` is not int64")
+                (at.ti.size == 8 && at.ti.signed && at.ti.little) ||
+                    report!(v, "E19", path,
+                            "integer `$(name)` is not little-endian int64")
             else
                 report!(v, "E19", path, "`$(name)` is an integer")
             end
         elseif at.ti.class === :float
             if expected === :float
-                if at.ti.size != 8
-                    report!(v, "E19", path, "float `$(name)` is not float64")
+                if at.ti.size != 8 || !at.ti.little
+                    report!(v, "E19", path,
+                            "float `$(name)` is not little-endian float64")
                 elseif at.value isa Real && !isfinite(at.value)
                     # Section 18: an attribute that declares a bound, a
                     # level or a quantile must be finite, and the four
@@ -706,13 +708,15 @@ end
 
 function check_key_dtype!(v::Validator, path, role, ti::TypeInfo)
     if role in ("design", "condition", "time")
-        (ti.class === :float && ti.size == 8) || report!(v, "E20", path,
-            "a $(role) key must be float64")
+        (ti.class === :float && ti.size == 8 && ti.little) ||
+            report!(v, "E20", path,
+                    "a $(role) key must be little-endian float64")
     elseif role in ("categorical", "group", "split", "status")
-        (ti.class === :int && ti.signed && ti.size in (4, 8)) ||
-            report!(v, "E20", path, "a $(role) key must be int32 or int64")
+        (ti.class === :int && ti.signed && ti.size in (4, 8) && ti.little) ||
+            report!(v, "E20", path,
+                    "a $(role) key must be little-endian int32 or int64")
     elseif role == "id"
-        ok = (ti.class === :int && ti.signed && ti.size == 8) ||
+        ok = (ti.class === :int && ti.signed && ti.size == 8 && ti.little) ||
              (ti.class === :string && !ti.vlen)
         ok || report!(v, "E20", path,
             "an id key must be int64 or a fixed-length UTF-8 string")
@@ -912,8 +916,9 @@ function check_scalars!(v::Validator)
         check_source!(v, path, obj, a)
         if obj isa HDF5.Dataset
             ti = type_info(HDF5.datatype(obj))
-            (ti.class === :float && ti.size == 8) || report!(v, "E20", path,
-                "a scalar must be float64")
+            (ti.class === :float && ti.size == 8 && ti.little) ||
+                report!(v, "E20", path,
+                        "a scalar must be little-endian float64")
             cdims, _ = disk_shape(obj)
             length(cdims) == 1 || report!(v, "E16", path,
                 "a dataset under /scalars has exactly one dimension, " *
@@ -1020,8 +1025,9 @@ function check_row_support!(v::Validator)
     d = rsobj
     guard!(v, "/row_support") do
         ti = type_info(HDF5.datatype(d))
-        (ti.class === :int && ti.signed && ti.size == 4) ||
-            report!(v, "E20", "/row_support", "/row_support must be int32")
+        (ti.class === :int && ti.signed && ti.size == 4 && ti.little) ||
+            report!(v, "E20", "/row_support",
+                    "/row_support must be little-endian int32")
         v.structural ||
             (v.row_support = Int.(vec(safe_read(d;
                                       max_elements = v.max_elements))))
@@ -1147,8 +1153,9 @@ function check_cells!(v::Validator, path, g, kind, n_nodes, n_cells)
         report!(v, "E20", "$(path)/cell_types", "cell_types must be uint8")
     for n in ("cell_offsets", "cell_connectivity")
         t = type_info(HDF5.datatype(g[n]))
-        (t.class === :int && t.signed && t.size == 8) ||
-            report!(v, "E20", "$(path)/$(n)", "$(n) must be int64")
+        (t.class === :int && t.signed && t.size == 8 && t.little) ||
+            report!(v, "E20", "$(path)/$(n)",
+                    "$(n) must be little-endian int64")
     end
     for t in types
         haskey(CELL_NODES, Int(t)) || report!(v, "E21", "$(path)/cell_types",
@@ -1336,6 +1343,10 @@ function check_array_shape!(v::Validator, spath, d, a, role, loc, sname,
         T = uint8_eltype(ti)
         T in DTYPE_BY_ROLE[role] || report!(v, "E20", spath,
             "a $(role) array may not be stored as $(T)")
+        T in DTYPE_BY_ROLE[role] && !ti.little && ti.size > 1 &&
+            report!(v, "E20", spath,
+                    "a $(role) array is stored little-endian, and this " *
+                    "one is big-endian")
     end
     varies = haskey(a, "varies") && a["varies"].value isa AbstractString ?
              a["varies"].value : nothing
@@ -1510,11 +1521,13 @@ function check_dict!(v::Validator, path, g, toplevel::Bool, depth::Int)
             check_string_bytes(at.raw) || report!(v, "E32", path,
                 "attribute `$(name)` holds a NUL byte or is not UTF-8")
         elseif at.ti.class === :int
-            at.ti.size in (1, 8) || report!(v, "E32", path,
-                "attribute `$(name)` is neither int8 nor int64")
+            (at.ti.size in (1, 8) && at.ti.signed &&
+             (at.ti.little || at.ti.size == 1)) ||
+                report!(v, "E32", path, "attribute `$(name)` is neither " *
+                        "int8 nor little-endian int64")
         elseif at.ti.class === :float
-            at.ti.size == 8 || report!(v, "E32", path,
-                "attribute `$(name)` is not float64")
+            (at.ti.size == 8 && at.ti.little) || report!(v, "E32", path,
+                "attribute `$(name)` is not little-endian float64")
         end
     end
     for name in vchildren!(v, g, path)
@@ -1554,6 +1567,9 @@ function check_dict!(v::Validator, path, g, toplevel::Bool, depth::Int)
             T = uint8_eltype(ti)
             T in (Int8, Int32, Int64, Float64) || report!(v, "E32", p,
                 "a dtype the codec does not allow: $(T)")
+            T in (Int32, Int64, Float64) && !ti.little &&
+                report!(v, "E32", p, "a big-endian dataset; section 25 " *
+                        "stores a numeric array little-endian")
         end
         end
     end

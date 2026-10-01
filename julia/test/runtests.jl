@@ -1049,6 +1049,39 @@ end
     end
 end
 
+@testset "byte order is part of the encoding (sections 18, 19 and 25)" begin
+    # Section 18 names little-endian types for every number and
+    # section 19 stores every numeric dataset little-endian.  A check
+    # of class and size alone passed a big-endian file, and the
+    # attribute was then decoded as if it were native: an n_cells of 2
+    # came back as 2^57.
+    big(name) = HDF5.Datatype(HDF5.API.h5t_copy(name))
+    path = joinpath(SCRATCH, "n_cells_big_endian.mes")
+    cp(case_file("mesh_two_rows"), path; force = true)
+    chmod(path, 0o644)
+    HDF5.h5open(path, "r+") do f
+        s = f["supports/s0"]
+        HDF5.delete_attribute(s, "n_cells")
+        a = HDF5.create_attribute(s, "n_cells",
+                                  big(HDF5.API.H5T_STD_I64BE),
+                                  HDF5.dataspace(()))
+        HDF5.write_attribute(a, HDF5.datatype(Int64), Ref(Int64(2)))
+        close(a)
+    end
+    r = Mestra.validate(path)
+    @test r.errors == ["E19"]
+    e = refusal(() -> Mestra.read(path))
+    @test e !== nothing && e.rule == "E19"
+    @test Mestra.read(path; strict = false).supports[1].n_cells == 2
+
+    # A big-endian dataset is E20 and nothing else: a semantic rule,
+    # so the file still reads, and the values are the ones it holds.
+    path = case_file("err_e20_big_endian")
+    @test Mestra.validate(path).errors == ["E20"]
+    ds = Mestra.read(path; lazy = false)
+    @test vec(Mestra.raw_data(ds.scalars["cl"])) == [0.25, 0.55]
+end
+
 @testset "a conforming file carrying /private is accepted (sections 12, 14, 29)" begin
     # Section 14, of the byte-level rules of sections 18 to 25: "They
     # are checked on the public objects only.  `/private` is not

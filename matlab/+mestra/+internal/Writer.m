@@ -564,7 +564,7 @@ classdef Writer
 
         function n = itemSize(dtype)
         %itemSize  Bytes per element of a dtype.
-            switch dtype
+            switch mestra.internal.H5.baseType(dtype)
                 case {'float64', 'int64'}, n = 8;
                 case {'float32', 'int32'}, n = 4;
                 case {'int8', 'uint8'}, n = 1;

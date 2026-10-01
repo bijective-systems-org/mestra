@@ -194,7 +194,7 @@ classdef Codec
                         elements = mestra.internal.Codec.cOrder( ...
                             data, info.dims);
                         dict(key) = mestra.Array.fromFile(elements, ...
-                                                          info.dims, info.type);
+                            info.dims, mestra.internal.H5.baseType(info.type));
                     end
                     H5D.close(did);
                 end

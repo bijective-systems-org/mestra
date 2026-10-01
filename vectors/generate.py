@@ -470,7 +470,7 @@ def mesh_base(f, o):
             sattr(cl, "output", g("cl_output"))
     else:
         cl_values = g("cl_values", [0.25, 0.55])
-        cl = dataset(scalars, "cl", cl_values, "<f8", [row],
+        cl = dataset(scalars, "cl", cl_values, g("cl_dtype", "<f8"), [row],
                      n_rows=n_rows,
                      contiguous=g("cl_contiguous", False),
                      gzip=g("cl_gzip", None),
@@ -2285,6 +2285,32 @@ def mk(builder, options, description, errors=(), warnings=(),
     return build
 
 
+def then(builder, change):
+    """A base file with something done to it after it is built, for
+    a deviation no option of the base describes."""
+    def build(f, o):
+        out = builder(f, o)
+        change(f)
+        return out
+    return build
+
+
+def big_endian_attr(obj, name, value):
+    """An integer attribute stored big-endian, which section 18 does
+    not allow: it names H5T_STD_I64LE."""
+    del obj.attrs[name]
+    obj.attrs.create(name, np.array(value, dtype=">i8"))
+
+
+def big_endian_dictionary_array(f):
+    """A dictionary dataset stored big-endian, which section 25 does
+    not allow: a numeric array there is little-endian."""
+    m1 = f["callables/m1"]
+    d = m1.create_dataset("weights", data=np.array([0.5, 0.25]),
+                          dtype=">f8", track_times=False)
+    d.dims[0].attach_scale(scale(m1, "mestra_weights_d0", 2))
+
+
 #: A stored band beside the two-row pressure field: (row, node,
 #: component), one entry per node, the same in both rows.
 PRESSURE_BAND = np.array([[[0.5 + 0.1 * n] for n in range(6)]
@@ -2493,6 +2519,18 @@ CASES = {
         "A units attribute stored as a variable-length string, which "
         "section 18 forbids anywhere in the file.",
         errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_big_endian": mk(
+        then(mesh_base, lambda f: big_endian_attr(
+            f["supports/s0"], "n_cells", 2)),
+        {}, "A support's n_cells stored as a big-endian integer. Section "
+        "18 names little-endian int64, so the value is refused whatever "
+        "it decodes to.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e20_big_endian": mk(
+        mesh_base, {"cl_dtype": ">f8"},
+        "A scalar stored as big-endian float64. Section 19 stores every "
+        "numeric dataset little-endian.",
+        errors=["E20"], support_ids={"s0": MESH_SID}),
     "err_e20": mk(
         mesh_base, {"pressure_dtype": "<f4"},
         "A field stored as float32, which is not allowed anywhere.",
@@ -2563,6 +2601,13 @@ CASES = {
         "A callable dictionary holding a zero-dimensional dataset, "
         "which section 25 says must be written as an attribute "
         "instead.",
+        errors=["E32"], support_ids={"s0": MESH_SID}),
+    "err_e32_big_endian": mk(
+        then(affine_base, big_endian_dictionary_array),
+        {"type": "example"},
+        "A callable dictionary holding a big-endian float64 array, "
+        "which section 25 does not allow: a numeric array there is "
+        "little-endian.",
         errors=["E32"], support_ids={"s0": MESH_SID}),
     "err_e33": mk(
         mesh_base, {"mach_name": "mestra_mach"},

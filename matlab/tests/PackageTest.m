@@ -450,6 +450,39 @@ classdef PackageTest < matlab.unittest.TestCase
                                      unknownName, strjoin(r.warnings, ' '));
             end
         end
+
+        function byteOrderIsPartOfTheEncoding(testCase)
+        %byteOrderIsPartOfTheEncoding  Section 18 names little-endian
+        %   types for every number and section 19 stores every numeric
+        %   dataset little-endian.  A check of class and size alone,
+        %   which H5T gives without the byte order, passed both.
+            path = [tempname() '.mes'];
+            cleanup = onCleanup( ...
+                @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+            copyfile(fullfile(corpusRoot(), 'mesh_two_rows', 'case.mes'), ...
+                     path);
+            fileattrib(path, '+w');
+            fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+            gid = H5G.open(fid, '/supports/s0');
+            H5A.delete(gid, 'n_cells');
+            tid = H5T.copy('H5T_STD_I64BE');
+            sid = H5S.create('H5S_SCALAR');
+            aid = H5A.create(gid, 'n_cells', tid, sid, 'H5P_DEFAULT');
+            H5A.write(aid, 'H5T_NATIVE_LLONG', int64(2));
+            H5A.close(aid); H5S.close(sid); H5T.close(tid);
+            H5G.close(gid); H5F.close(fid);
+            r = mestra.validate(path);
+            testCase.verifyEqual(r.errors, {'E19'});
+            testCase.verifyError(@() mestra.read(path), 'mestra:E19');
+
+            % A big-endian dataset is E20 alone, a semantic rule, so
+            % the file reads, and the values are the ones it holds.
+            big = fullfile(corpusRoot(), 'err_e20_big_endian', 'case.mes');
+            r = mestra.validate(big);
+            testCase.verifyEqual(r.errors, {'E20'});
+            d = mestra.read(big);
+            testCase.verifyEqual(d.scalar('cl').values(:)', [0.25 0.55]);
+        end
     end
 
     methods (Static)

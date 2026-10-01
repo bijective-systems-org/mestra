@@ -84,10 +84,36 @@ classdef H5
             else
                 name = '';
             end
+            % Section 19 stores every numeric dataset little-endian and
+            % section 18 names little-endian types for every number, so
+            % a big-endian one is named apart: comparing class and size
+            % alone let both rules pass a file that breaks them.
+            if ~isempty(name) && sz > 1 && H5T.get_order(tid) == ...
+                    H5ML.get_constant_value('H5T_ORDER_BE')
+                name = [name 'be'];
+            end
+        end
+
+        function name = baseType(name)
+        %baseType  A short type name without its big-endian mark, for
+        %   the questions byte order does not change: which MATLAB
+        %   class holds the value and how many bytes an element takes.
+            if numel(name) > 2 && strcmp(name(end - 1:end), 'be') && ...
+                    ~strcmp(name, 'vlstring')
+                name = name(1:end - 2);
+            end
         end
 
         function tid = typeId(name)
-        %typeId  The little-endian file type for a short type name.
+        %typeId  The file type for a short type name: little-endian,
+        %   unless the name carries the big-endian mark typeName gives
+        %   a type read from a file, which a copy keeps as it found it.
+            base = mestra.internal.H5.baseType(name);
+            if ~strcmp(base, name)
+                tid = mestra.internal.H5.typeId(base);
+                H5T.set_order(tid, H5ML.get_constant_value('H5T_ORDER_BE'));
+                return
+            end
             switch name
                 case 'float64', tid = H5T.copy('H5T_IEEE_F64LE');
                 case 'float32', tid = H5T.copy('H5T_IEEE_F32LE');
@@ -103,7 +129,7 @@ classdef H5
 
         function tid = memType(name)
         %memType  The native memory type for a short type name.
-            switch name
+            switch mestra.internal.H5.baseType(name)
                 case 'float64', tid = H5T.copy('H5T_NATIVE_DOUBLE');
                 case 'float32', tid = H5T.copy('H5T_NATIVE_FLOAT');
                 case 'int64',   tid = H5T.copy('H5T_NATIVE_LLONG');
@@ -123,7 +149,7 @@ classdef H5
         %   not know are copied through as they stand, and MATLAB
         %   refuses to write a double into an H5T_IEEE_F32LE dataset,
         %   so the name has to mean `single` here.
-            switch name
+            switch mestra.internal.H5.baseType(name)
                 case 'float64', v = double(data);
                 case 'float32', v = single(data);
                 case 'int64',  v = int64(data);

@@ -141,6 +141,9 @@ function read_dict_dataset(d::HDF5.Dataset;
     T in (Int32, Int64, Float64) ||
         throw(MestraError("E32",
             "a dataset dtype the codec does not allow: $(T)"))
+    ti.little || throw(MestraError("E32",
+        "a big-endian dataset; section 25 stores a numeric array " *
+        "little-endian"))
     return c_to_julia(raw, T, cdims)
 end
 
