@@ -129,6 +129,17 @@ function tf = followable(ctx, gid, name, path)
     end
 end
 
+function slotGroupDatasets(ctx, gid, path)
+%slotGroupDatasets  A dataset inside a slot a callable serves is a
+%   public dataset like any other, so the byte-level rules hold for it.
+    for name = mestra.internal.H5.children(gid)
+        if strcmp(mestra.internal.H5.childType(gid, name{1}), 'dataset')
+            guard(ctx, [path '/' name{1}], @() checkUnknownDataset( ...
+                ctx, gid, name{1}, [path '/' name{1}]));
+        end
+    end
+end
+
 function linksIn(ctx, gid, path)
 %linksIn  E40 for every member of a public group whose members are not
 %   otherwise visited: /notes, which holds attributes, and a slot a
@@ -748,6 +759,7 @@ function checkOneScalar(ctx, g, name, path)
     end
     if isGroup
         linksIn(ctx, oid, path);
+        slotGroupDatasets(ctx, oid, path);
     end
     checkAttrEncodings(ctx, oid, path);
     checkKnownAttrs(ctx, oid, path, ...
@@ -1150,6 +1162,7 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
     end
     if isGroup
         linksIn(ctx, oid, path);
+        slotGroupDatasets(ctx, oid, path);
     end
     checkAttrEncodings(ctx, oid, path);
     checkKnownAttrs(ctx, oid, path, ...
@@ -1199,8 +1212,10 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
     checkStatistic(ctx, oid, path);
 
     % ---- E04: section 5 names three values of varies, for a slot a
-    % callable serves as much as for one that holds data
-    if ~isempty(varies) && ~any(strcmp(varies, {'none', 'row'})) && ...
+    % callable serves as much as for one that holds data; an empty
+    % string is a value too, and not one of the three
+    if H5.hasAttr(oid, 'varies') && ...
+            ~any(strcmp(varies, {'none', 'row'})) && ...
             ~strncmp(varies, 'group:', 6)
         rep.add('E04', path, 'varies is "%s", not none, row or group:<k>', ...
                 varies);
@@ -1371,6 +1386,13 @@ function checkOneCallable(ctx, g, name, path)
     closer = onCleanup(@() H5G.close(cid)); %#ok<NASGU>
     if ~H5.hasAttr(cid, 'type')
         ctx.rep.add('E15', path, 'a callable group has no type');
+    end
+    % `type` and `repr` are the container's attributes on this group,
+    % encoded as section 18 says; every other one is a dictionary entry
+    % and the codec's to judge.
+    found = mestra.internal.Attrs.findings(cid, {'type', 'repr'});
+    for i = 1:numel(found)
+        ctx.rep.add(found(i).id, path, '%s', found(i).message);
     end
     checkDictionaryScales(ctx, cid, path, 0);
     [~, problems] = mestra.internal.Codec.read(cid, true);

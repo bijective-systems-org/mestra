@@ -680,6 +680,7 @@ classdef Reader
                 oid = H5G.open(g, name);
                 R = @mestra.internal.Reader;
                 R().noteLinks(d, oid, path);
+                R().inspectMembers(d, oid, path, map);
                 R().checkAttrs(d, oid, path);
                 rec(1).units = R().str(oid, 'units');
                 rec(1).source = R().str(oid, 'source');
@@ -850,6 +851,7 @@ classdef Reader
             if isGroup
                 oid = H5G.open(g, name);
                 R().noteLinks(d, oid, path);
+                R().inspectMembers(d, oid, path, map);
             else
                 oid = H5D.open(g, name);
             end
@@ -1073,6 +1075,26 @@ classdef Reader
                         ['%d entries where %d rows of this file are on ' ...
                          'the support'], a.shape(1), want));
                 end
+            end
+        end
+
+        function inspectMembers(d, gid, path, map)
+        %inspectMembers  The byte-level rules on a dataset found inside
+        %   a slot a callable serves, which holds none by right but is
+        %   a public object if it does.
+            if isempty(d), return, end
+            for name = mestra.internal.H5.children(gid)
+                if ~strcmp(mestra.internal.H5.childType(gid, name{1}), ...
+                           'dataset')
+                    continue
+                end
+                did = H5D.open(gid, name{1});
+                info = mestra.internal.H5.dsetInfo(did);
+                if ~info.isScale
+                    mestra.internal.Reader.inspect(did, info, d, ...
+                        [path '/' name{1}], map);
+                end
+                H5D.close(did);
             end
         end
 

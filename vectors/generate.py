@@ -2689,6 +2689,11 @@ CASES = {
         "section 5 names. It holds no data, so only the word can be "
         "checked, and it is wrong.",
         errors=["E04"], support_ids={"s0": MESH_SID}),
+    "err_e04_empty_varies": mk(
+        mesh_base, {"pressure_varies": ""},
+        "A field whose varies is the empty string, which is a value and "
+        "not one of the three section 5 names.",
+        errors=["E04"], support_ids={"s0": MESH_SID}),
     "err_e05": mk(
         mesh_base, {"pressure": PRESSURE_2[:, :5, :]},
         "A node array of five nodes on a support of six.",
@@ -2818,6 +2823,13 @@ CASES = {
         "A units attribute stored as a variable-length string, which "
         "section 18 forbids anywhere in the file.",
         errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_callable_type": mk(
+        then(affine_base, lambda f: string_attr_as(
+            f["callables/m1"], "type", "affine", h5py.h5t.CSET_ASCII,
+            h5py.h5t.STR_NULLPAD)), {},
+        "A callable whose type attribute has the ASCII character set. "
+        "type is an attribute section 18 encodes like any other string.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
     "err_e19_vlen_role": mk(
         then(mesh_base, lambda f: (
             f["keys/mach"].attrs.__delitem__("role"),
@@ -2918,6 +2930,12 @@ CASES = {
         then(affine_base, dictionary_scale_of_another), {"type": "example"},
         "A dictionary dataset whose axis carries a scale named for "
         "another dataset.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_slot_group_dataset": mk(
+        then(affine_base, lambda f: f["scalars/cl"].create_dataset(
+            "extra", data=np.arange(2.0), track_times=False)), {},
+        "A dataset with no dimension scale inside a slot a callable "
+        "serves. It is a public dataset, so the byte-level rules hold.",
         errors=["E25"], support_ids={"s0": MESH_SID}),
     "err_e25_unknown_dataset": mk(
         then(mesh_base, dataset_without_scale), {},
