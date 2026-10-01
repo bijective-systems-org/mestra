@@ -983,6 +983,7 @@ class _FileValidator:
             self.error("E02", where, "%r is not an array role of "
                                      "section 3" % role)
         varies = _attr(member, "varies")
+        declared = varies is not None
         if varies is None:
             self.error("E39", where, "an array carries varies")
             varies = "none"
@@ -1024,7 +1025,11 @@ class _FileValidator:
         dims = _logical(member, self.scales)
         wanted = 1 + (1 if varies != "none" else 0) \
             + (1 if _attr(member, "statistic") == "draw" else 0) + 1
-        if member.ndim != wanted:
+        if not declared:
+            # E39 already: with no varies there is nothing to hold the
+            # leading dimension against.
+            pass
+        elif member.ndim != wanted:
             self.error("E04", where, "an array with varies = %s has %d "
                                      "axes, and this one has %d"
                        % (varies, wanted, member.ndim))

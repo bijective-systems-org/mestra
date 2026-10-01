@@ -3063,6 +3063,13 @@ CASES = {
         "say it: it is not taken for a mesh missing its cells and its "
         "coordinates. Its digest is n_nodes alone whatever the kind.",
         errors=["E39"], support_ids={"s0": NONE_SID}),
+    "err_e39_varies": mk(
+        then(mesh_base, lambda f: f["supports/s0/node_arrays/pressure"]
+             .attrs.__delitem__("varies")), {},
+        "A row-varying field without its varies. That is E39, and there "
+        "is then nothing to hold its leading dimension against, so it is "
+        "not E04 as well.",
+        errors=["E39"], support_ids={"s0": MESH_SID}),
     "err_e40_dictionary": mk(
         then(affine_base, soft_link_in("callables/m1/outputs")), {},
         "A soft link inside a callable's dictionary. The dictionary is "
