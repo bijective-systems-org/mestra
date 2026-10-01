@@ -539,10 +539,12 @@ classdef Reader
             end
         end
 
-        function values = readValues(did, info, d, path)
+        function [values, ok] = readValues(did, info, d, path)
         %readValues  Read a dataset, noting why if it will not read.
-        %   Returns [] when the data could not be had, with the reason
-        %   recorded under the rule it breaks.
+        %   Returns [] and OK false when the data could not be had,
+        %   with the reason recorded under the rule it breaks.  A
+        %   dataset with no elements reads as an empty array of its
+        %   own shape and OK true: empty is a value, not a failure.
             try
                 if strcmp(info.type, 'string')
                     out = mestra.internal.H5.decodeStrings(did, info);
@@ -562,7 +564,9 @@ classdef Reader
                     end
                 end
                 values = mestra.internal.H5.readData(did, info);
+                ok = true;
             catch err
+                ok = false;
                 id = 'E41';
                 if strcmp(err.identifier, 'mestra:E41'), id = 'E41'; end
                 mestra.internal.Reader.note(d, path, id, ...
@@ -835,10 +839,13 @@ classdef Reader
             rec(1).filters = info.filters;
             R().inspect(oid, info, d, path, map);
             if eager
-                values = R().readValues(oid, info, d, path);
-                if isempty(values)
+                [values, ok] = R().readValues(oid, info, d, path);
+                if ~ok
                     rec(1).values = [];
                 else
+                    % A zero-length extent, which a zero-row file or a
+                    % support no row is on gives a row-varying slot, is
+                    % kept: the empty array still has its shape.
                     rec(1).values = reshape(values, [fliplr(info.dims) 1 1]);
                 end
             else

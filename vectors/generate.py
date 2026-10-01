@@ -2724,6 +2724,16 @@ CASES = {
         "An axis support carrying a cell_types dataset and a cell "
         "dimension.",
         errors=["E38"], support_ids={"s0": E_AXIS_SID}),
+    "zero_rows_stored": mk(
+        mesh_base, {"n_rows": 0, "mach_values": np.zeros(0),
+                    "member_values": np.zeros(0, dtype="<i4"),
+                    "cl_values": np.zeros(0),
+                    "pressure": np.zeros((0, 6, 1))},
+        "No rows, and stored row-varying slots of shape (0, ...): the "
+        "keys, the scalar and a (row, node, component) field with a "
+        "zero-length row axis. Its shape is (0, 6, 1) and stays that "
+        "through a rewrite. Neither group category is used.",
+        warnings=["W07"], support_ids={"s0": MESH_SID}),
     "err_e40_dictionary": mk(
         then(affine_base, soft_link_in("callables/m1/outputs")), {},
         "A soft link inside a callable's dictionary. The dictionary is "
