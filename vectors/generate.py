@@ -2499,13 +2499,19 @@ def shared_draws(f):
     sattr(d, "statistic", "draw")
 
 
-def big_endian_dictionary_array(f):
-    """A dictionary dataset stored big-endian, which section 25 does
-    not allow: a numeric array there is little-endian."""
-    m1 = f["callables/m1"]
-    d = m1.create_dataset("weights", data=np.array([0.5, 0.25]),
-                          dtype=">f8", track_times=False)
-    d.dims[0].attach_scale(scale(m1, "mestra_weights_d0", 2))
+def dictionary_array_of(dtype):
+    """A dictionary dataset of a dtype section 25 does not allow: a
+    numeric array there is little-endian int8, int32, int64 or
+    float64."""
+    def change(f):
+        m1 = f["callables/m1"]
+        d = m1.create_dataset("weights", data=np.array([0.5, 0.25]),
+                              dtype=dtype, track_times=False)
+        d.dims[0].attach_scale(scale(m1, "mestra_weights_d0", 2))
+    return change
+
+
+big_endian_dictionary_array = dictionary_array_of(">f8")
 
 
 #: A stored band beside the two-row pressure field: (row, node,
@@ -2847,6 +2853,13 @@ CASES = {
         "A callable dictionary holding a big-endian float64 array, "
         "which section 25 does not allow: a numeric array there is "
         "little-endian.",
+        errors=["E32"], support_ids={"s0": MESH_SID}),
+    "err_e32_float32": mk(
+        then(affine_base, dictionary_array_of("<f4")),
+        {"type": "example"},
+        "A callable dictionary holding a float32 array. Section 19 sends "
+        "a dictionary dataset to section 25, so it is E32 and not E20, "
+        "and E32 does not stop a read.",
         errors=["E32"], support_ids={"s0": MESH_SID}),
     "err_e33": mk(
         mesh_base, {"mach_name": "mestra_mach"},

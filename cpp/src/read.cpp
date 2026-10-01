@@ -408,7 +408,9 @@ Dataset read_impl(const std::string& path, bool with_data) {
     c.repr = at.text("repr");
     // A callable's dictionary holds no field data; it is what a
     // reader needs to hand to `from_dict`, so it is read either way.
-    if (with_data) c.dict = internal::read_dict_group(f, p, true);
+    if (with_data) {
+      c.dict = internal::read_dict_group(f, p, true, 0, &d.not_read);
+    }
     d.callables.push_back(std::move(c));
   }
 
@@ -532,7 +534,7 @@ Dataset read(const std::string& path, const ReadOptions& options) {
     refuse("mestra::read", path, refused);
   }
   Dataset d = read_impl(path, true);
-  d.not_read = std::move(refused);
+  d.not_read.insert(d.not_read.begin(), refused.begin(), refused.end());
   return d;
 }
 

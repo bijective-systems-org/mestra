@@ -1688,7 +1688,11 @@ function check_every_dataset!(v::Validator)
             ti.size > longest && report!(v, "W13", path,
                 "stored in $(ti.size) bytes where $(longest) would do")
         end
-        ti.class === :float && ti.size == 4 && report!(v, "E20", path,
+        # Section 19's table sends a dataset inside a callable's
+        # dictionary to section 25, where a float32 is E32, which the
+        # dictionary check reports; E20 is for the public datasets.
+        ti.class === :float && ti.size == 4 &&
+            !startswith(path, "/callables/") && report!(v, "E20", path,
             "float32 is not allowed anywhere")
         ti.vlen && report!(v, "E19", path,
             "a variable-length type is never legal")

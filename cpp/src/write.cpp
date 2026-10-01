@@ -644,6 +644,20 @@ void write(const Dataset& d, const std::string& path,
   internal::check_dataset_names(d);
   internal::check_dataset_shapes(d);
   check_destination(path);
+  // What a read had to leave out of a callable's dictionary would be
+  // dropped by a rewrite, so a checked write refuses rather than lose
+  // it in silence (conventions section 7).
+  if (options.check) {
+    for (const Finding& f : d.not_read) {
+      if (f.id == "E32") {
+        throw Error("E32", "\"" + path + "\" was not written: " + f.where +
+                               " " + f.message +
+                               ", so this dataset holds the dictionary "
+                               "without it; pass check = false to write "
+                               "it so");
+      }
+    }
+  }
   if (!options.check) {
     write_file(d, path);
     return;

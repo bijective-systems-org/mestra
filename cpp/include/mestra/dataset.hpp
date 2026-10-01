@@ -247,9 +247,12 @@ struct Dataset {
   AttrMap root_extra;            // root attributes this version does
                                  // not know (W11)
   std::vector<std::string> unknown_root_groups;
-  // What a non-strict read refused: the structural findings a strict
-  // read would have thrown for.  Empty after a strict read, which
-  // would not have returned at all, and after a build from vectors.
+  // What a read left out.  After a non-strict read, the structural
+  // findings a strict read would have thrown for.  After any read, an
+  // entry of a callable's dictionary section 25 cannot represent
+  // (E32), which a semantic rule does not stop a read for; a checked
+  // write refuses while one is listed, since it would drop it.  Empty
+  // after a build from vectors.
   std::vector<Finding> not_read;
   // Container groups the file carries even when they hold nothing, so
   // that a round trip does not add or drop an object path.

@@ -1585,6 +1585,40 @@ void links_anywhere_public() {
   }
 }
 
+// E32 is a semantic rule, so a dictionary holding something section
+// 25 cannot represent does not stop a read (conventions section 2);
+// the read lists what it left out, and a checked write refuses to
+// drop it.
+void unrepresentable_dictionary_entries() {
+  for (const char* name : {"err_e32", "err_e32_float32"}) {
+    const std::string path =
+        std::string("../../vectors/cases/") + name + "/case.mes";
+    if (!std::ifstream(path).good()) {
+      std::cout << "     (" << name << " is not beside the build; skipped)\n";
+      continue;
+    }
+    std::string rule = "read";
+    mestra::Dataset d;
+    try {
+      d = mestra::read(path);
+    } catch (const mestra::Error& e) {
+      rule = e.rule();
+    }
+    check::equal(std::string(name) + ": a strict read returns", rule, "read");
+    check::is_true(std::string(name) + ": the read lists the entry",
+                   d.not_read.size() == 1 && d.not_read[0].id == "E32");
+    std::string refused;
+    try {
+      mestra::write(d, "mestra_unit_e32.mes");
+    } catch (const mestra::Error& e) {
+      refused = e.rule();
+    }
+    check::equal(std::string(name) + ": a checked write refuses", refused,
+                 "E32");
+    std::remove("mestra_unit_e32.mes");
+  }
+}
+
 int main() {
   sha256_vectors();
   support_id_vectors();
@@ -1605,5 +1639,6 @@ int main() {
   bytes_order();
   append_rows_grows_a_file();
   links_anywhere_public();
+  unrepresentable_dictionary_entries();
   return check::finish("mestra unit tests");
 }
