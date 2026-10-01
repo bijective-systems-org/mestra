@@ -377,7 +377,7 @@ function checkOneCategory(ctx, g, name, path)
         checkStringDataset(ctx, did, info, path);
     end
     checkAttrEncodings(ctx, did, path);
-    checkScales(ctx, did, info, path);
+    checkScales(ctx, did, info, path, {['category_' name]});
 end
 
 function checkStringDataset(ctx, did, info, path)
@@ -979,7 +979,9 @@ function checkOneSupport(ctx, parent, name, index)
         if ~followable(ctx, sid, nm{1}, [path '/' nm{1}])
             continue
         end
-        if ~ismember(nm{1}, known)
+        % W11 is an attribute or a group (sections 14 and 28); a
+        % dataset this version does not know is checked below instead.
+        if ~ismember(nm{1}, known) && strcmp(H5.childType(sid, nm{1}), 'group')
             rep.add('W11', [path '/' nm{1}], ...
                 'this reader does not know this object; it is ignored');
         end
@@ -1014,6 +1016,7 @@ function checkUnknownDataset(ctx, gid, name, path)
     closer = onCleanup(@() H5D.close(did)); %#ok<NASGU>
     info = H5.dsetInfo(did);
     if info.isScale || isempty(info.dims), return, end
+    checkScales(ctx, did, info, path);
     leading = H5.scaleNames(did, 0, ctx.scales);
     if isempty(leading) || ~strcmp(leading(1).name, 'row'), return, end
     checkChunking(ctx, did, info, path, info.dims(1));
@@ -1328,14 +1331,46 @@ function checkOneCallable(ctx, g, name, path)
     if ~H5.hasAttr(cid, 'type')
         ctx.rep.add('E15', path, 'a callable group has no type');
     end
+    checkDictionaryScales(ctx, cid, path, 0);
     [~, problems] = mestra.internal.Codec.read(cid, true);
     for i = 1:numel(problems)
         if numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'U03 ')
             ctx.rep.add('E41', path, '%s', problems{i}(5:end));
         elseif numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'E40 ')
             ctx.rep.add('E40', path, '%s', problems{i}(5:end));
+        elseif numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'E25 ')
+            continue    % checkDictionaryScales reports it at the dataset
         else
             ctx.rep.add('E32', path, '%s', problems{i});
+        end
+    end
+end
+
+function checkDictionaryScales(ctx, gid, path, depth)
+%checkDictionaryScales  E25 on the datasets of a callable's dictionary:
+%   section 21 names the scale on axis i of a dictionary dataset
+%   mestra_<dataset>_d<i>, so a scale of any other name is the wrong
+%   one even when it is a legal name somewhere else.
+    if depth > mestra.internal.Limits.get('maxDepth'), return, end
+    H5 = mestra.internal.H5;
+    for name = H5.children(gid)
+        if mestra.internal.Text.reserved(name{1}), continue, end
+        kind = H5.childType(gid, name{1});
+        sub = [path '/' name{1}];
+        if strcmp(kind, 'group')
+            g = H5G.open(gid, name{1});
+            checkDictionaryScales(ctx, g, sub, depth + 1);
+            H5G.close(g);
+        elseif strcmp(kind, 'dataset')
+            did = H5D.open(gid, name{1});
+            info = H5.dsetInfo(did);
+            if ~info.isScale && ~isempty(info.dims)
+                wanted = arrayfun(@(i) sprintf('mestra_%s_d%d', ...
+                    name{1}, i - 1), 1:numel(info.dims), ...
+                    'UniformOutput', false);
+                guard(ctx, sub, @() checkScales(ctx, did, info, sub, wanted));
+            end
+            H5D.close(did);
         end
     end
 end
@@ -1495,11 +1530,15 @@ function tf = dictionaryZeroAxis(path, len)
     tf = len == 0 && strncmp(path, '/callables/', 11);
 end
 
-function checkScales(ctx, did, info, path)
+function checkScales(ctx, did, info, path, wanted)
 %checkScales  E25 for every axis of a dataset.
 %   A dimension scale is not itself subject to this rule and carries
 %   no scale on its own axis (section 14), so this is called only on
-%   the datasets the format defines.
+%   the datasets the format defines.  WANTED, when given, is the one
+%   name section 21 allows on each axis, where the position decides
+%   it: category_<table> on a table, mestra_<dataset>_d<i> in a
+%   dictionary.
+    if nargin < 5, wanted = {}; end
     H5 = mestra.internal.H5;
     for axis = 1:numel(info.dims)
         found = H5.scaleNames(did, axis - 1, ctx.scales);
@@ -1529,6 +1568,11 @@ function checkScales(ctx, did, info, path)
             continue
         end
         why = scaleNameProblem(found(1).name, info.dims(axis));
+        if isempty(why) && numel(wanted) >= axis && ...
+                ~isempty(wanted{axis}) && ~strcmp(found(1).name, wanted{axis})
+            why = sprintf('the scale is "%s" where section 21 names "%s"', ...
+                          found(1).name, wanted{axis});
+        end
         if ~isempty(why)
             ctx.rep.add('E25', path, 'axis %d: %s', axis - 1, why);
         end

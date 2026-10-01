@@ -426,10 +426,10 @@ classdef PackageTest < matlab.unittest.TestCase
         %
         %   Such a file can be read as E27 or as nothing at all, which
         %   is why it is pinned here.  Both names below are the same
-        %   rule, and the one this
-        %   version happens to know as a support's own dimension scale
-        %   draws no W11 while the other does.
-            for probe = {{'row', false}, {'extra', true}}
+        %   rule.  Neither draws W11, which is about an attribute or a
+        %   group (sections 14 and 28) and not a dataset, as the other
+        %   three implementations read it.
+            for probe = {{'row', false}, {'extra', false}}
                 name = probe{1}{1};
                 unknownName = probe{1}{2};
                 path = [tempname() '.mes'];

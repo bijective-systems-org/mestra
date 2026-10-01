@@ -931,6 +931,18 @@ classdef ConventionsTest < matlab.unittest.TestCase
             n = mestra.limits().maxElements + 1000;
             did = mestra.internal.H5.createDataset(gid, 'oversized', ...
                                                    'float64', n, n, 1024);
+            % Its own dimension scale, as section 21 names it, so that
+            % the element cap is the only thing wrong with the file.
+            % A scale chunked over its whole length would be one chunk
+            % past the library's 4 GiB limit, so it is chunked as the
+            % dataset is; nothing is ever written to it either way.
+            sid = mestra.internal.H5.createDataset(gid, ...
+                'mestra_oversized_d0', 'float32', n, n, 1024, [], 0, ...
+                mestra.internal.H5.crtOrderTrackedIndexed());
+            H5DS.set_scale(sid, sprintf('%s%10d', ...
+                mestra.internal.H5.SENTENCE, n));
+            H5DS.attach_scale(did, sid, 0);
+            H5D.close(sid);
             H5D.close(did);
             H5G.close(gid);
         end

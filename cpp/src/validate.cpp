@@ -417,6 +417,17 @@ Axes Validator::axes_of(const std::string& path, const DsetInfo& info,
                         " has more than one dimension scale attached");
       }
       a.logical.push_back(std::string());
+    } else if (attached.front().empty()) {
+      // One reference, to an object this file gives no name: a scale
+      // whose link was deleted after it was attached.  The axis has
+      // no dimension a reader can name.
+      if (report_e25) {
+        error("E25", path,
+              "axis " + internal::format_i64(static_cast<std::int64_t>(i)) +
+                  " is attached to an object that is not a dimension "
+                  "scale of this file");
+      }
+      a.logical.push_back(std::string());
     } else {
       a.logical.push_back(internal::logical_dim(attached.front()));
     }

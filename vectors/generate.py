@@ -2451,6 +2451,35 @@ def big_endian_attr(obj, name, value):
     obj.attrs.create(name, np.array(value, dtype=">i8"))
 
 
+def scale_deleted(f):
+    """The coordinates' component scale deleted after it was attached,
+    so that the axis names an object that is no longer there."""
+    del f["component_2"]
+
+
+def dictionary_scale_of_another(f):
+    """A dictionary dataset whose axis carries another dataset's
+    scale: section 21 names it mestra_<dataset>_d<i>."""
+    m1 = f["callables/m1"]
+    d = m1.create_dataset("weights", data=np.array([0.5, 0.25]),
+                          track_times=False)
+    d.dims[0].attach_scale(scale(m1, "mestra_other_d0", 2))
+
+
+def table_on_another_scale(f):
+    """A second category table attached to the first one's scale:
+    section 21 names a table's dimension category_<table>."""
+    strings(f["categories"], "zone", ["fore", "aft"],
+            f["category_region"])
+
+
+def dataset_without_scale(f):
+    """A dataset this version does not know inside a support group,
+    with no dimension scale on its axis."""
+    f["supports/s0"].create_dataset("extra", data=np.arange(3.0),
+                                    track_times=False)
+
+
 def string_attr_as(obj, name, value, cset, pad):
     """A string attribute in an encoding section 18 does not allow:
     the character set or the padding other than UTF-8 and NUL."""
@@ -2800,6 +2829,27 @@ CASES = {
     "err_e25": mk(
         mesh_base, {"pressure_no_component_scale": True},
         "The component axis of a field carries no dimension scale.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_category_table": mk(
+        then(mesh_base, table_on_another_scale), {},
+        "A category table attached to another table's dimension scale.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_dangling": mk(
+        then(mesh_base, scale_deleted), {},
+        "The coordinates' component scale deleted after it was attached, "
+        "so the axis carries a reference to nothing.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_dictionary": mk(
+        then(affine_base, dictionary_scale_of_another), {"type": "example"},
+        "A dictionary dataset whose axis carries a scale named for "
+        "another dataset.",
+        errors=["E25"], support_ids={"s0": MESH_SID}),
+    "err_e25_unknown_dataset": mk(
+        then(mesh_base, dataset_without_scale), {},
+        "A dataset this version does not know, inside a support group, "
+        "with no dimension scale. It is a public object, so the "
+        "byte-level rules are checked on it. W11 is about an attribute "
+        "or a group, so a dataset draws none.",
         errors=["E25"], support_ids={"s0": MESH_SID}),
     "err_e26": mk(
         mesh_base, {"region_raw": [b"in\x00et", b"outlet"]},

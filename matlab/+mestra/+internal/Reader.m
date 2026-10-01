@@ -141,7 +141,7 @@ classdef Reader
                         info = H5.dsetInfo(did);
                         mestra.internal.Reader.checkAttrs(d, did, path);
                         mestra.internal.Reader.inspect(did, info, d, path, ...
-                                                       scales);
+                            scales, {['category_' name{1}]});
                         rec = mestra.Dataset.emptyCategory();
                         rec(1).name = name{1};
                         rec(1).entries = mestra.internal.Reader.readValues( ...
@@ -230,7 +230,7 @@ classdef Reader
                     end
                     [record, limits] = ...
                         mestra.internal.Reader.readCallable(g, name{1}, ...
-                                                            d, eager);
+                                                            d, eager, scales);
                     found{end + 1} = record; %#ok<AGROW>
                     for i = 1:numel(limits)
                         mestra.internal.Reader.note(d, ...
@@ -485,7 +485,7 @@ classdef Reader
             end
         end
 
-        function inspect(did, info, d, path, map)
+        function inspect(did, info, d, path, map, wanted)
         %inspect  Record what would stop this dataset being read.
         %   Section 23 makes a reader refuse a dataset with a filter
         %   that is not gzip or shuffle (E29), and section 21 requires
@@ -501,6 +501,7 @@ classdef Reader
         %   keys, and handing it back would be worse than refusing it
         %   (docs/api-conventions.md, section 2).
             if nargin < 5, map = []; end
+            if nargin < 6, wanted = {}; end
             if ~isempty(info.dims)
                 leading = mestra.internal.H5.scaleNames(did, 0, map);
                 if ~isempty(leading) && strcmp(leading(1).name, 'row') && ...
@@ -535,6 +536,14 @@ classdef Reader
                     mestra.internal.Reader.note(d, path, 'E25', sprintf( ...
                         ['axis %d is attached to something this reader ' ...
                          'cannot name'], axis - 1));
+                elseif numel(wanted) >= axis && ~isempty(wanted{axis}) && ...
+                        ~strcmp(found(1).name, wanted{axis})
+                    % Where the position decides the one name section 21
+                    % allows -- a table, a support's own cell datasets --
+                    % another name is the wrong dimension.
+                    mestra.internal.Reader.note(d, path, 'E25', sprintf( ...
+                        'axis %d carries "%s" where section 21 names "%s"', ...
+                        axis - 1, found(1).name, wanted{axis}));
                 end
             end
         end
@@ -729,13 +738,15 @@ classdef Reader
                 end
             end
 
-            plain = {'cell_types', 'cellTypes'; ...
-                     'cell_offsets', 'cellOffsets'; ...
-                     'cell_connectivity', 'cellConnectivity'};
+            plain = {'cell_types', 'cellTypes', 'cell'; ...
+                     'cell_offsets', 'cellOffsets', 'cell_plus_one'; ...
+                     'cell_connectivity', 'cellConnectivity', 'index'};
             for i = 1:size(plain, 1)
                 if mestra.internal.Reader.hasKind(sid, plain{i, 1}, 'dataset')
                     did = H5D.open(sid, plain{i, 1});
                     info = H5.dsetInfo(did);
+                    mestra.internal.Reader.inspect(did, info, d, ...
+                        [path '/' plain{i, 1}], map, plain(i, 3));
                     rec(1).(plain{i, 2}) = ...
                         reshape(H5.readData(did, info), 1, []);
                     H5D.close(did);
@@ -772,6 +783,26 @@ classdef Reader
                         rec(1).cellArrays, found);
                 end
                 H5G.close(ag);
+            end
+            % A dataset this version does not know, inside a support
+            % group, is a public object, so the byte-level rules are
+            % checked on it as on any other (section 14); it is not
+            % read, and a rewrite lists it as lossy.
+            known = {'coordinates', 'node_arrays', 'cell_arrays', ...
+                     'cell_types', 'cell_offsets', 'cell_connectivity', ...
+                     'node', 'cell', 'cell_plus_one', 'index', 'row'};
+            for nm = H5.children(sid)
+                if ismember(nm{1}, known) || ...
+                        ~strcmp(H5.childType(sid, nm{1}), 'dataset')
+                    continue
+                end
+                did = H5D.open(sid, nm{1});
+                info = H5.dsetInfo(did);
+                if ~info.isScale
+                    mestra.internal.Reader.inspect(did, info, d, ...
+                        [path '/' nm{1}], map);
+                end
+                H5D.close(did);
             end
             H5G.close(sid);
         end
@@ -854,7 +885,7 @@ classdef Reader
             H5D.close(oid);
         end
 
-        function [rec, limits] = readCallable(g, id, d, eager)
+        function [rec, limits] = readCallable(g, id, d, eager, map)
         %readCallable  One callable: its type, its dictionary and, when
         %   the type is registered, the object itself.  A reader that
         %   does not know the type keeps the dictionary and must not
@@ -882,14 +913,17 @@ classdef Reader
             rec(1).type = mestra.internal.Reader.str(gid, 'type');
             rec(1).repr = mestra.internal.Reader.str(gid, 'repr');
             rec(1).obj = [];
-            [dict, problems] = mestra.internal.Codec.read(gid, true, 0, eager);
+            if nargin < 5, map = []; end
+            [dict, problems] = mestra.internal.Codec.read(gid, true, 0, ...
+                                                          eager, map);
             limits = {};
             for i = 1:numel(problems)
                 if numel(problems{i}) > 4 && strcmp(problems{i}(1:4), 'U03 ')
                     limits{end + 1} = {'E41', problems{i}(5:end)}; %#ok<AGROW>
                 elseif numel(problems{i}) > 4 && ...
-                        strcmp(problems{i}(1:4), 'E40 ')
-                    limits{end + 1} = {'E40', problems{i}(5:end)}; %#ok<AGROW>
+                        any(strcmp(problems{i}(1:4), {'E40 ', 'E25 '}))
+                    limits{end + 1} = {problems{i}(1:3), ...
+                                       problems{i}(5:end)}; %#ok<AGROW>
                 end
             end
             if ~eager

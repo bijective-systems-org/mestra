@@ -1628,6 +1628,7 @@ function check_every_dataset!(v::Validator)
                     "axis $(axis - 1) is unlimited on the dimension " *
                     "`$(n)`, and section 19 leaves only `row` unlimited")
         end
+        wanted = wanted_dim_names(path, length(cdims))
         for (axis, n) in pairs(names)
             k = axes[axis][1]
             if k < 0
@@ -1640,10 +1641,21 @@ function check_every_dataset!(v::Validator)
             elseif k > 1
                 report!(v, "E25", path,
                         "axis $(axis - 1) carries $(k) dimension scales")
-            elseif n !== nothing && !known_dim_name(n)
+            elseif n === nothing
+                # One reference, and it is not to a dimension scale this
+                # file holds: a scale deleted after it was attached, or
+                # something that never was one.
+                report!(v, "E25", path,
+                        "axis $(axis - 1) is attached to something that is " *
+                        "not a dimension scale of this file")
+            elseif !known_dim_name(n)
                 report!(v, "E25", path,
                         "axis $(axis - 1) carries a scale called `$(n)`, " *
                         "which section 21 does not name")
+            elseif wanted[axis] !== nothing && n != wanted[axis]
+                report!(v, "E25", path,
+                        "axis $(axis - 1) carries `$(n)`, where section 21 " *
+                        "names `$(wanted[axis])`")
             elseif n !== nothing
                 # Section 21 gives a scale both CLASS and NAME.  One
                 # with only CLASS is half a scale, and the axis it is
@@ -1742,6 +1754,29 @@ function check_scale!(v::Validator, path::AbstractString, d::HDF5.Dataset)
                 "only `row` unlimited")
     end
     return v
+end
+
+"""The one name section 21 allows on each axis of the dataset at
+`path`, where its position decides it, or `nothing` for an axis whose
+name another rule checks: a category table carries category_<table>, a
+support's own cell datasets carry cell, cell_plus_one and index, and
+axis i of a dictionary dataset carries mestra_<dataset>_d<i>."""
+function wanted_dim_names(path::AbstractString, nd::Int)
+    out = Union{String,Nothing}[nothing for _ in 1:nd]
+    parts = split(strip(path, '/'), '/')
+    nd == 0 && return out
+    if length(parts) == 2 && parts[1] == "categories"
+        out[1] = "category_" * parts[2]
+    elseif parts[1] == "callables" && length(parts) >= 3
+        for i in 1:nd
+            out[i] = "mestra_$(parts[end])_d$(i - 1)"
+        end
+    elseif parts[1] == "supports" && length(parts) == 3
+        cell = Dict("cell_types" => "cell", "cell_offsets" => "cell_plus_one",
+                    "cell_connectivity" => "index")
+        haskey(cell, parts[3]) && (out[1] = cell[parts[3]])
+    end
+    return out
 end
 
 function known_dim_name(n::AbstractString)

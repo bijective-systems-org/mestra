@@ -28,6 +28,8 @@
 #include <thread>
 #include <vector>
 
+#include <hdf5.h>
+
 #include "check.hpp"
 #include "mestra/mestra.hpp"
 
@@ -1619,6 +1621,29 @@ void unrepresentable_dictionary_entries() {
   }
 }
 
+// An axis attached to an object the file no longer names: a scale
+// unlinked while it was open survives as an anonymous object, so the
+// axis still dereferences, and to nothing a reader can name.  E25.
+void an_axis_on_an_unnamed_object() {
+  const std::string source = "../../vectors/cases/mesh_two_rows/case.mes";
+  const std::string path = "mestra_unit_unnamed_scale.mes";
+  if (!std::ifstream(source).good()) {
+    std::cout << "     (mesh_two_rows is not beside the build; skipped)\n";
+    return;
+  }
+  std::filesystem::copy_file(
+      source, path, std::filesystem::copy_options::overwrite_existing);
+  const hid_t file = H5Fopen(path.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  const hid_t scale = H5Dopen2(file, "component_2", H5P_DEFAULT);
+  H5Ldelete(file, "component_2", H5P_DEFAULT);
+  H5Dclose(scale);
+  H5Fclose(file);
+  const std::vector<std::string> ids = mestra::validate(path).error_ids();
+  check::is_true("an axis on an unnamed object is E25",
+                 std::find(ids.begin(), ids.end(), "E25") != ids.end());
+  std::remove(path.c_str());
+}
+
 int main() {
   sha256_vectors();
   support_id_vectors();
@@ -1640,5 +1665,6 @@ int main() {
   append_rows_grows_a_file();
   links_anywhere_public();
   unrepresentable_dictionary_entries();
+  an_axis_on_an_unnamed_object();
   return check::finish("mestra unit tests");
 }
