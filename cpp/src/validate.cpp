@@ -845,12 +845,16 @@ void Validator::categories() {
       error("E33", p,
             "\"" + m.name + "\" begins with the reserved prefix mestra_");
     }
-    if (info.type.klass != H5T_STRING) {
+    // A table of the wrong dtype is E20, and is still a public dataset
+    // the byte-level rules hold for: its scale and its storage are
+    // checked below whatever it holds.
+    const bool is_text = info.type.klass == H5T_STRING;
+    if (!is_text) {
       error("E20", p, "a category table that is not a string dataset");
-      return;
+    } else {
+      check_string_dataset(p, info, true);
+      category_tables_[m.name] = texts(p);
     }
-    check_string_dataset(p, info, true);
-    category_tables_[m.name] = texts(p);
     axes_of(p, info, true);
     if (!info.scales.empty() && info.scales[0].size() == 1 &&
         info.scales[0].front() != "category_" + m.name) {

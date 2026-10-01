@@ -2834,6 +2834,13 @@ CASES = {
         mesh_base, {"member_dtype": ">i4"},
         "A group key stored as big-endian int32.",
         errors=["E20"], support_ids={"s0": MESH_SID}),
+    "err_e20_numeric_table": mk(
+        then(mesh_base, lambda f: f["categories"].create_dataset(
+            "zone", data=np.array([0.0, 1.0]), track_times=False)), {},
+        "A category table of float64 values with no dimension scale. Its "
+        "dtype is E20, and it is still a public dataset, so the missing "
+        "scale is E25.",
+        errors=["E20", "E25"], support_ids={"s0": MESH_SID}),
     "err_e20": mk(
         mesh_base, {"pressure_dtype": "<f4"},
         "A field stored as float32, which is not allowed anywhere.",
