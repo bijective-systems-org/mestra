@@ -92,7 +92,10 @@ classdef Writer
             end
 
             % ----------------------------------------- row_support
-            if ~isempty(d.rowSupport)
+            % Section 22: a file that declares more than one support
+            % has /row_support, and with no rows it is empty, not
+            % absent.
+            if ~isempty(d.rowSupport) || numel(d.supports) > 1
                 chunk = mestra.internal.Writer.rowChunk(4, [], ...
                                                         numel(d.rowSupport));
                 did = H5.createDataset(root, 'row_support', 'int32', ...

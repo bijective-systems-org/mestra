@@ -2882,6 +2882,14 @@ CASES = {
         "its own. None of it is checked, and a rewrite carries every "
         "attribute and dataset with the type it was found with.",
         support_ids={"s0": MESH_SID}),
+    "zero_rows_unaligned": mk(
+        two_support_base, {"n_rows": 0, "aligned": False,
+                           "row_support": np.zeros(0, dtype="<i4")},
+        "Two supports and no rows. The file is unaligned, so it carries "
+        "/row_support, which is empty rather than absent, and no row "
+        "references either support.",
+        warnings=["W05", "W15"],
+        support_ids={"s0": MESH_SID, "s1": S1_SID}),
     "zero_rows_stored": mk(
         mesh_base, {"n_rows": 0, "mach_values": np.zeros(0),
                     "member_values": np.zeros(0, dtype="<i4"),
