@@ -95,15 +95,13 @@ classdef Sha
 
         function b = int64le(values)
         %int64le  Little-endian bytes of int64 values.
-            b = zeros(1, 8 * numel(values), 'uint8');
-            for i = 1:numel(values)
-                v = int64(values(i));
-                u = double(v);
-                if u < 0, u = u + 18446744073709551616; end
-                for j = 1:8
-                    b((i - 1) * 8 + j) = uint8(mod(u, 256));
-                    u = floor(u / 256);
-                end
+        %   The bytes of the int64 itself, as float64le takes the bytes
+        %   of the double: going through a double and back by division
+        %   turned -1 into 2^64, which rounds to eight zero bytes, and
+        %   would lose any value past 2^53.
+            b = typecast(int64(values(:)'), 'uint8');
+            if ~mestra.internal.Sha.littleEndian()
+                b = reshape(flipud(reshape(b, 8, [])), 1, []);
             end
         end
 

@@ -2690,6 +2690,16 @@ CASES = {
         "support to be reachable at all.",
         errors=["E06"], warnings=["W05"],
         support_ids={"s0": MESH_SID, "s1": S1_SID}),
+    "err_e08_negative_nodes": mk(
+        lambda f, o: (case_support_kind_none(f),
+                      f["supports/s0"].attrs.__setitem__(
+                          "n_nodes", np.int64(-1))),
+        {},
+        "The support of kind none with n_nodes set to -1 and its digest "
+        "left as it was. Section 24 hashes n_nodes as an int64, so the "
+        "stored digest no longer matches.",
+        errors=["E08"],
+        support_ids={"s0": support_id(-1)}),
     "err_e08": mk(
         mesh_base, {"support_id": WRONG_SID},
         "A support_id that does not match the stored arrays; the "
