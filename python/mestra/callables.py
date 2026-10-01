@@ -371,8 +371,14 @@ class Affine(Callable):
 
     def to_dict(self) -> dict[str, Any]:
         """The dictionary of section 27, and nothing else."""
+        # Section 27 makes `keys` a string dataset. An empty list says
+        # nothing about its elements and section 25 writes it as
+        # float64, so a callable of no keys -- a constant -- hands the
+        # codec an empty string array instead.
+        keys: Any = (list(self.keys) if self.keys
+                     else np.zeros(0, dtype=np.str_))
         return {
-            "keys": list(self.keys),
+            "keys": keys,
             "outputs": {name: {key: entry[key]
                                for key in ("A", "b", "shape",
                                            "uncertainty", "level",

@@ -329,3 +329,26 @@ def test_a_callable_class_needs_a_type():
 
     with pytest.raises(MestraError):
         mestra.register_callable(Nameless)
+
+
+def test_an_affine_of_no_keys_writes_its_keys_as_strings(tmp_path):
+    """Section 27 makes `keys` a fixed-length string dataset. With no
+    keys the list was empty, and section 25 writes an empty list whose
+    element type nobody knows as float64, so a constant was written
+    with float64 keys and read back in C++, Julia and MATLAB as a
+    number array where the type says strings."""
+    ds = mestra.Dataset(writer="test", created="2026-10-01T00:00:00Z")
+    ds.add_key("mach", [0.4, 0.8], role="condition", units="1")
+    ds.add_callable("m1", mestra.Affine(
+        [], {"cl": {"A": np.zeros((1, 0)), "b": [0.05], "shape": []}}))
+    ds.add_callable_slot("cl", units="1", callable="m1")
+    path = str(tmp_path / "constant.mes")
+    mestra.write(ds, path)
+    with h5py.File(path, "r") as f:
+        keys = f["/callables/m1/keys"]
+        assert keys.shape == (0,)
+        assert h5py.check_string_dtype(keys.dtype) is not None
+    with mestra.read(path) as back:
+        assert back.callables["m1"].keys == []
+        out = back.callables["m1"]({"mach": [0.4]})
+        assert out["cl"].mean.tolist() == [0.05]

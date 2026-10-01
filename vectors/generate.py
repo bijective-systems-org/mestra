@@ -879,6 +879,57 @@ def case_dictionary_empty_arrays(f):
         codec={"m1": tagged(d)})
 
 
+#: A constant: an affine callable with no keys at all (section 27).
+AFFINE_CONSTANT = {
+    "cl": {"A": np.zeros((1, 0)), "b": np.array([0.05]),
+           "shape": np.array([], dtype="<i8")},
+}
+
+
+def case_affine_no_keys(f):
+    """An affine callable of no keys, so A has a zero-length axis and
+    `keys` is an empty string dataset: section 27 makes it a string
+    dataset and section 25 says how an empty one is written."""
+    sattr(f, "created", CREATED)
+    sattr(f, "format", "mestra/0")
+    sattr(f, "writer", WRITER)
+    battr(f, "aligned", True)
+    row = scale(f, "row", 0, unlimited=True)
+    mach = dataset(f.create_group("keys"), "mach", np.zeros(0), "<f8",
+                   [row], n_rows=0)
+    sattr(mach, "role", "condition")
+    sattr(mach, "units", "1")
+    fattr(mach, "lower", 0.1)
+    fattr(mach, "upper", 0.9)
+    cl = f.create_group("scalars").create_group("cl")
+    sattr(cl, "units", "1")
+    sattr(cl, "source", "callable:m1")
+    sattr(cl, "output", "cl")
+    m1 = f.create_group("callables").create_group("m1")
+    sattr(m1, "type", "affine")
+    keys = m1.create_dataset("keys", shape=(0,), dtype=sdtype(1),
+                             maxshape=(None,), chunks=(1,),
+                             track_times=False)
+    keys.dims[0].attach_scale(scale(m1, "mestra_keys_d0", 0,
+                                    unlimited=True))
+    out = m1.create_group("outputs").create_group("cl")
+    for name in ("A", "b", "shape"):
+        codec_array(out, name, AFFINE_CONSTANT["cl"][name])
+    worked = affine_evaluation("m1", [], AFFINE_CONSTANT,
+                               {"cl": "/scalars/cl"}, AFFINE_AT)
+    # The file declares mach and the callable reads none of its keys,
+    # so the table carries mach, which section 26 says the callable
+    # ignores, and the table's one row is what gives cl one row.
+    worked["keys"] = {"mach": [fnum(at["mach"]) for at in AFFINE_AT]}
+    return expect(
+        "An affine callable with no keys: a constant. keys is an empty "
+        "fixed-length string dataset and A has shape (1, 0). Evaluated "
+        "on a one-row table of the file's key mach, which it ignores, "
+        "cl is b.",
+        codec={"m1": tagged(affine_dict([], AFFINE_CONSTANT))},
+        evaluation=[worked])
+
+
 # ------------------------------------------------- the five mappings
 
 def pressures(n):
@@ -2450,6 +2501,7 @@ PRESSURE_BAND_NEGATIVE[1, 2, 0] = -0.7
 CASES = {
     # the two files of docs/example.md
     "mesh_two_rows": case_mesh_two_rows,
+    "affine_no_keys": case_affine_no_keys,
     "affine_zero_rows": case_affine_zero_rows,
     "dictionary_empty_arrays": case_dictionary_empty_arrays,
     "dictionary_null": case_dictionary_null,
