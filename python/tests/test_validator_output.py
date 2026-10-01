@@ -184,3 +184,12 @@ def test_an_illegal_dictionary_key_is_one_finding_at_its_group():
     report = mestra.validate(corpus.case_path("err_e33_dictionary"))
     assert [(f.rule, f.where) for f in report.errors] == [
         ("E33", "/callables/m1/outputs/cl")]
+
+
+def test_a_wrong_node_count_is_reported_at_the_offsets():
+    """E22 is decided from cell_offsets, and C++ and Julia report it
+    there; Python reported it at the support and MATLAB at the
+    connectivity, so one file gave one rule at three paths."""
+    report = mestra.validate(corpus.case_path("err_e22"))
+    assert [(f.rule, f.where) for f in report.errors] == [
+        ("E22", "/supports/s0/cell_offsets")]

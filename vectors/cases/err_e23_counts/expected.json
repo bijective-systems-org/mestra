@@ -1,0 +1,1 @@
+{"codec":{},"description":"Cell offsets whose last value is not the length of the connectivity, which also gives the second cell five nodes. A node count comes from the offsets, so offsets that are E23 decide no E22.","evaluation":[],"probes":[],"support_ids":{"s0":"0bc3faaa564c047604178795cd92f0d9967cfefcab545c261a54228224c5d26a"},"validator":{"errors":["E23"],"warnings":[]}}

@@ -1083,7 +1083,10 @@ function checkCells(ctx, path, types, offsets, conn, nNodes, nCells)
                 'cell type %d is not in the table of section 20', types(i));
         end
     end
+    offsetsOk = true;
     if ~isempty(offsets)
+        offsetsOk = offsets(1) == 0 && ~any(diff(offsets) < 0) && ...
+                    offsets(end) == numel(conn);
         if offsets(1) ~= 0
             rep.add('E23', [path '/cell_offsets'], ...
                 'the first offset is %d and not 0', offsets(1));
@@ -1096,19 +1099,21 @@ function checkCells(ctx, path, types, offsets, conn, nNodes, nCells)
                 offsets(end), numel(conn));
         end
     end
-    if numel(offsets) == numel(types) + 1
+    % Node counts come from the offsets, so offsets that are E23 say
+    % nothing about them: E22 is decided on offsets that are sound.
+    if offsetsOk && numel(offsets) == numel(types) + 1
         for j = 1:numel(types)
             span = offsets(j + 1) - offsets(j);
             if ~table.isKey(types(j)), continue, end
             want = table(types(j));
             if want < 0
                 if span < 3
-                    rep.add('E22', [path '/cell_connectivity'], ...
+                    rep.add('E22', [path '/cell_offsets'], ...
                         ['polygon %d has %d nodes where 3 or more are ' ...
                          'needed'], j - 1, span);
                 end
             elseif span ~= want
-                rep.add('E22', [path '/cell_connectivity'], ...
+                rep.add('E22', [path '/cell_offsets'], ...
                     'cell %d has %d nodes where type %d takes %d', ...
                     j - 1, span, types(j), want);
             end

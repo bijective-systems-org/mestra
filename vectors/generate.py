@@ -2873,6 +2873,16 @@ CASES = {
         errors=["E23"],
         support_ids={"s0": support_id(N_NODES, E23_TYPES, E23_OFFSETS,
                                       CELL_CONNECTIVITY)}),
+    "err_e23_counts": mk(
+        mesh_base, {"cell_offsets": np.array([0, 4, 9], dtype="<i8")},
+        "Cell offsets whose last value is not the length of the "
+        "connectivity, which also gives the second cell five nodes. A "
+        "node count comes from the offsets, so offsets that are E23 "
+        "decide no E22.",
+        errors=["E23"],
+        support_ids={"s0": support_id(N_NODES, CELL_TYPES,
+                                      np.array([0, 4, 9]),
+                                      CELL_CONNECTIVITY)}),
     "err_e24": mk(
         mesh_base, {"cell_connectivity": E24_CONN},
         "A connectivity value equal to the node count, one past the "

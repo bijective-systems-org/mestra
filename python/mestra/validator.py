@@ -909,15 +909,17 @@ class _FileValidator:
                 wanted = CELL_TYPES.get(int(code))
                 if wanted is None:
                     continue
+                # At the offsets, which is where a node count comes
+                # from and where the other implementations report it.
                 if wanted == -1:
                     if width < 3:
-                        self.error("E22", where, "cell %d is a polygon "
-                                                 "of %d nodes"
+                        self.error("E22", where + "/cell_offsets",
+                                   "cell %d is a polygon of %d nodes"
                                    % (at, width))
                 elif width != wanted:
-                    self.error("E22", where, "cell %d is type %d and "
-                                             "takes %d nodes, and the "
-                                             "offsets give it %d"
+                    self.error("E22", where + "/cell_offsets",
+                               "cell %d is type %d and takes %d nodes, "
+                               "and the offsets give it %d"
                                % (at, int(code), wanted, width))
         if connectivity.size:
             outside = connectivity[(connectivity < 0)
