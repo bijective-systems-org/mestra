@@ -311,7 +311,10 @@ classdef Codec
             end
             empty = any(dims == 0);
             if empty
-                maxdims = -ones(1, numel(dims));
+                % Section 25 makes each zero-length axis unlimited, and
+                % E43 allows that axis and no other.
+                maxdims = dims;
+                maxdims(dims == 0) = -1;
                 chunk = ones(1, numel(dims));
             else
                 maxdims = dims;

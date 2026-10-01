@@ -194,11 +194,16 @@ void write_dict_group(File& f, const std::string& path, const Dict& d,
             a.shape.end();
         // Section 25: every zero-length axis is created with an
         // unlimited maximum, so that the dimension is legal in
-        // netCDF-4.
+        // netCDF-4.  Only that axis: E43 allows no other dimension
+        // but `row` to be unlimited, so an axis of length 2 beside it
+        // keeps its length as its maximum.
         std::vector<hsize_t> maxshape;
         std::vector<hsize_t> chunk;
         if (empty) {
-          maxshape.assign(shape.size(), H5S_UNLIMITED);
+          maxshape = shape;
+          for (hsize_t& e : maxshape) {
+            if (e == 0) e = H5S_UNLIMITED;
+          }
           chunk.assign(shape.size(), 1);
         }
         // A dictionary dataset is not row dimensioned, so section 23

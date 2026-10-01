@@ -230,7 +230,9 @@ function write_dict_array(g, name::String, v::AbstractArray)
     end
     cdims = collect(size(v))
     empty = any(==(0), cdims)
-    cmax = empty ? fill(-1, length(cdims)) : copy(cdims)
+    # Section 25 makes each zero-length axis unlimited, and E43 allows
+    # that axis and no other.
+    cmax = [n == 0 ? -1 : n for n in cdims]
     chunk = empty ? fill(1, length(cdims)) : nothing
     d = create_raw_dataset(g, name, dt, cdims, cmax, raw; chunk = chunk)
     dict_scales!(g, name, cdims, d)

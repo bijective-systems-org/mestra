@@ -599,7 +599,8 @@ def codec_array(group, name, data, zero_d=False):
     d = group.create_dataset(
         name, shape=data.shape, dtype=data.dtype.newbyteorder("<"),
         data=data, track_times=False,
-        maxshape=(None,) * data.ndim if empty else None,
+        maxshape=(tuple(None if n == 0 else n for n in data.shape)
+                  if empty else None),
         chunks=(1,) * data.ndim if empty else None)
     for axis, length in enumerate(data.shape):
         s = scale(group, "mestra_%s_d%d" % (name, axis), length,
@@ -850,6 +851,28 @@ def case_dictionary_null(f):
         "A dictionary holding the null sentinel at its top level and "
         "inside a nested dictionary. Both are values, not strings with a "
         "NUL in them, and both survive a rewrite.",
+        support_ids={"s0": MESH_SID},
+        codec={"m1": tagged(d)})
+
+
+def case_dictionary_empty_arrays(f):
+    """Empty arrays of more than one dimension inside a dictionary.
+    Section 25 makes each zero-length axis unlimited, and E43 allows
+    that axis and no other, so the axis of length 2 beside it is
+    fixed."""
+    affine_base(f, {"type": "example"})
+    m1 = f["callables/m1"]
+    empties = {"grid": np.zeros((2, 0), dtype="<f8"),
+               "pairs": np.zeros((0, 3), dtype="<i8"),
+               "flags": np.zeros((0,), dtype="<i4")}
+    for name in sorted(empties):
+        codec_array(m1, name, empties[name])
+    d = affine_dict()
+    d.update(empties)
+    return expect(
+        "A dictionary holding empty arrays of shape (2, 0), (0, 3) and "
+        "(0,). Only the zero-length axes are unlimited, and a rewrite "
+        "keeps the dtype, the shape and the maximum shape of each.",
         support_ids={"s0": MESH_SID},
         codec={"m1": tagged(d)})
 
@@ -2371,6 +2394,7 @@ CASES = {
     # the two files of docs/example.md
     "mesh_two_rows": case_mesh_two_rows,
     "affine_zero_rows": case_affine_zero_rows,
+    "dictionary_empty_arrays": case_dictionary_empty_arrays,
     "dictionary_null": case_dictionary_null,
     # the five mappings
     "family_static": case_family_static,
