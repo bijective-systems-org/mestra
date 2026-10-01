@@ -2302,6 +2302,27 @@ def big_endian_attr(obj, name, value):
     obj.attrs.create(name, np.array(value, dtype=">i8"))
 
 
+def string_attr_as(obj, name, value, cset, pad):
+    """A string attribute in an encoding section 18 does not allow:
+    the character set or the padding other than UTF-8 and NUL."""
+    raw = value.encode("utf-8")
+    t = h5py.h5t.C_S1.copy()
+    t.set_size(len(raw))
+    t.set_cset(cset)
+    t.set_strpad(pad)
+    del obj.attrs[name]
+    a = h5py.h5a.create(obj.id, name.encode(), t,
+                        h5py.h5s.create(h5py.h5s.SCALAR))
+    a.write(np.array(raw, dtype="S%d" % len(raw)), mtype=t)
+
+
+def strings_not_utf8_nulpad(f):
+    string_attr_as(f["keys/mach"], "units", "1", h5py.h5t.CSET_UTF8,
+                   h5py.h5t.STR_SPACEPAD)
+    string_attr_as(f["scalars/cl"], "units", "1", h5py.h5t.CSET_ASCII,
+                   h5py.h5t.STR_NULLPAD)
+
+
 def big_endian_dictionary_array(f):
     """A dictionary dataset stored big-endian, which section 25 does
     not allow: a numeric array there is little-endian."""
@@ -2525,6 +2546,12 @@ CASES = {
         {}, "A support's n_cells stored as a big-endian integer. Section "
         "18 names little-endian int64, so the value is refused whatever "
         "it decodes to.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_string_encoding": mk(
+        then(mesh_base, strings_not_utf8_nulpad), {},
+        "Two units attributes that are fixed-length strings but not the "
+        "encoding section 18 names: one space padded, one with the ASCII "
+        "character set.",
         errors=["E19"], support_ids={"s0": MESH_SID}),
     "err_e20_big_endian": mk(
         mesh_base, {"cl_dtype": ">f8"},

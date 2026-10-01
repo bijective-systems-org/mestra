@@ -483,6 +483,40 @@ classdef PackageTest < matlab.unittest.TestCase
             d = mestra.read(big);
             testCase.verifyEqual(d.scalar('cl').values(:)', [0.25 0.55]);
         end
+
+        function aStringAttributeIsUtf8WithNulPadding(testCase)
+        %aStringAttributeIsUtf8WithNulPadding  Section 18: a string
+        %   attribute is fixed-length UTF-8 padded with NUL, and both
+        %   the character set and the padding are the encoding.  This
+        %   reader read the bytes and checked them, and never asked
+        %   how they were declared.
+            for variant = {{'H5T_CSET_ASCII', 'H5T_STR_NULLPAD'}, ...
+                           {'H5T_CSET_UTF8', 'H5T_STR_SPACEPAD'}, ...
+                           {'H5T_CSET_UTF8', 'H5T_STR_NULLTERM'}}
+                path = [tempname() '.mes'];
+                cleanup = onCleanup( ...
+                    @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+                copyfile(fullfile(corpusRoot(), 'mesh_two_rows', ...
+                                  'case.mes'), path);
+                fileattrib(path, '+w');
+                fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+                did = H5D.open(fid, '/scalars/cl');
+                H5A.delete(did, 'units');
+                tid = H5T.copy('H5T_C_S1');
+                H5T.set_size(tid, 2);
+                H5T.set_cset(tid, H5ML.get_constant_value(variant{1}{1}));
+                H5T.set_strpad(tid, H5ML.get_constant_value(variant{1}{2}));
+                sid = H5S.create('H5S_SCALAR');
+                aid = H5A.create(did, 'units', tid, sid, 'H5P_DEFAULT');
+                H5A.write(aid, tid, 'Pa');
+                H5A.close(aid); H5S.close(sid); H5T.close(tid);
+                H5D.close(did); H5F.close(fid);
+                r = mestra.validate(path);
+                testCase.verifyEqual(r.errors, {'E19'}, ...
+                    strjoin(variant{1}, ' '));
+                testCase.verifyError(@() mestra.read(path), 'mestra:E19');
+            end
+        end
     end
 
     methods (Static)
