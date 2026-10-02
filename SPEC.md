@@ -409,7 +409,11 @@ A file carries the minimum a reader needs to open it, and no more:
 
 An optional `notes` group may hold free-form attributes (a solver
 name, a dataset licence, a comment). Nothing in the format depends on
-them and no tool may require them.
+them and no tool may require them. They are public, so section 18
+holds for them as for any attribute: a string among them is a
+fixed-length UTF-8 string padded with NUL (E19) holding legal text
+(E26), and never a variable-length one. A number among them is the
+producer's choice, because the format names no number there.
 
 Lineage, history, upstream links, validation records, sign-off, and
 evaluation parameters are deliberately not part of the format. They
@@ -809,6 +813,11 @@ Roles and rules:
     `/private`; it was not decidable before. E39 was added for a required
     attribute of section 19 that is simply absent, which nothing covered
     (section 14).
+  - A string attribute under `/notes` is held to the string encoding of
+    section 18 (E19, E26). One implementation did so, one only for a
+    variable-length string and NUL bytes, and two not at all, so a note
+    stored in ASCII opened in two languages and not in the others
+    (section 11).
   - E18 is reported at the object the public thing is missing from, once
     for each such object, and not at `/private`: the object is what a
     writer has to fix, and `/private` is the one place a reader may not

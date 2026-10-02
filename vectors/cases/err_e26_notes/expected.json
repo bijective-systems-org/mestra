@@ -1,0 +1,1 @@
+{"codec":{},"description":"A note holding a NUL byte before its padding, which no string in the file may hold (section 18).","evaluation":[],"probes":[],"support_ids":{"s0":"96df395d80ef548444562292de441525ba0b5c8ad00a8dadff19a19c943936c7"},"validator":{"errors":["E26"],"warnings":[]}}

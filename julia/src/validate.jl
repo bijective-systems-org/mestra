@@ -449,6 +449,25 @@ function attr_kind(name::AbstractString)
     return nothing
 end
 
+"""E19 and E26 over attributes the format does not name, as those under
+`/notes` are (section 11): a string among them is stored as section 18
+stores every string, and a number is the producer's choice."""
+function check_free_strings!(v::Validator, path::String,
+                             a::Dict{String,RawAttr})
+    for (name, at) in a
+        at.ti.class === :string || continue
+        if at.ti.vlen
+            report!(v, "E19", path, "`$(name)` is a variable-length string")
+        elseif at.ti.cset != HDF5.API.H5T_CSET_UTF8 ||
+               at.ti.strpad != HDF5.API.H5T_STR_NULLPAD
+            report!(v, "E19", path, "`$(name)` is not UTF-8 with NUL padding")
+        elseif at.scalar && at.readable && !check_string_bytes(at.raw)
+            report!(v, "E26", path, "`$(name)` is not a legal string")
+        end
+    end
+    return v
+end
+
 """E26: valid UTF-8, and no NUL except in the trailing padding."""
 function check_string_bytes(raw::Vector{UInt8})
     body = strip_nul(raw)
@@ -1832,7 +1851,10 @@ function check_unknown!(v::Validator)
     # /notes holds attributes, so nothing else walks its members; a
     # link among them is still a link in the public tree (E40).
     notes = vroot(v, "notes")
-    notes === nothing || vchildren!(v, notes, "/notes")
+    if notes !== nothing
+        vchildren!(v, notes, "/notes")
+        check_free_strings!(v, "/notes", own_attrs(notes))
+    end
     a = own_attrs(v.f)
     for name in keys(a)
         name in ROOT_ATTRS || report!(v, "W11", "/",

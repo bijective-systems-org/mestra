@@ -1823,6 +1823,10 @@ function checkUnknown(ctx)
     if strcmp(H5.childType(ctx.root, 'notes'), 'group')
         notes = H5G.open(ctx.root, 'notes');
         linksIn(ctx, notes, '/notes');
+        found = mestra.internal.Attrs.freeFindings(notes);
+        for i = 1:numel(found)
+            ctx.rep.add(found(i).id, '/notes', '%s', found(i).message);
+        end
         % /notes is public: a dataset there is held to the byte-level
         % rules as any public dataset is.
         for name = H5.children(notes)

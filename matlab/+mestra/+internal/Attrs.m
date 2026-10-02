@@ -155,6 +155,51 @@ classdef Attrs
         end
     end
 
+    methods (Static)
+
+        function found = freeFindings(oid)
+        %freeFindings  Section 18 over attributes the format does not
+        %   name, as those under /notes are (section 11): a string
+        %   among them is stored as every string is, fixed-length UTF-8
+        %   padded with NUL (E19), and holds legal text (E26).  A number
+        %   is the producer's choice, and so is the shape.
+            H5 = mestra.internal.H5;
+            found = mestra.internal.Attrs.none();
+            for name = H5.publicAttrNames(oid)
+                try
+                    info = H5.attrDetail(oid, name{1});
+                catch err
+                    found = mestra.internal.Attrs.add(found, 'E41', ...
+                        name{1}, sprintf( ...
+                        'the attribute %s would not be described: %s', ...
+                        name{1}, regexprep(strtrim(err.message), '\s+', ' ')));
+                    continue
+                end
+                if strcmp(info.type, 'vlstring')
+                    found = mestra.internal.Attrs.add(found, 'E19', ...
+                        name{1}, sprintf( ...
+                        'the attribute %s is a variable-length string', ...
+                        name{1}));
+                elseif strcmp(info.type, 'string') && ...
+                        (info.cset ~= H5ML.get_constant_value('H5T_CSET_UTF8') || ...
+                         info.strpad ~= H5ML.get_constant_value('H5T_STR_NULLPAD'))
+                    found = mestra.internal.Attrs.add(found, 'E19', ...
+                        name{1}, sprintf( ...
+                        ['the attribute %s is not a UTF-8 string with ' ...
+                         'NUL padding'], name{1}));
+                elseif strcmp(info.type, 'string') && info.scalar
+                    bytes = H5.stringBytes(info.raw, name{1});
+                    [ok, why] = mestra.internal.Text.checkStringBytes(bytes);
+                    if ~ok
+                        found = mestra.internal.Attrs.add(found, 'E26', ...
+                            name{1}, sprintf('the attribute %s has %s', ...
+                                             name{1}, why));
+                    end
+                end
+            end
+        end
+    end
+
     methods (Static, Access = private)
 
         function found = none()

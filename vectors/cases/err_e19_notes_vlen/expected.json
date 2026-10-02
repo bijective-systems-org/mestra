@@ -1,0 +1,1 @@
+{"codec":{},"description":"A note stored as a variable-length string, which section 18 forbids anywhere in the file.","evaluation":[],"probes":[],"support_ids":{"s0":"96df395d80ef548444562292de441525ba0b5c8ad00a8dadff19a19c943936c7"},"validator":{"errors":["E19"],"warnings":[]}}

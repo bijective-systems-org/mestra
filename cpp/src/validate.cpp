@@ -829,10 +829,21 @@ void Validator::root() {
   }
   // /notes is free-form, so nothing there is unknown (no W11), but
   // section 18 still holds: legal names, no variable-length string
-  // anywhere in the file, and valid UTF-8.  /private is not looked at
-  // at all, which section 29 requires.
+  // anywhere in the file, valid UTF-8, and a string stored as section
+  // 18 stores every string (section 11).  A number there is the
+  // producer's choice.  /private is not looked at at all, which
+  // section 29 requires.
   if (f_.is_group("/notes")) {
-    check_attribute_encodings("/notes", f_.attributes("/notes"));
+    const std::vector<RawAttr> notes = f_.attributes("/notes");
+    check_attribute_encodings("/notes", notes);
+    for (const RawAttr& a : notes) {
+      if (a.type.klass == H5T_STRING && !a.type.variable_length &&
+          (a.type.cset != H5T_CSET_UTF8 || a.type.strpad != H5T_STR_NULLPAD)) {
+        error("E19", "/notes",
+              "the attribute \"" + a.name +
+                  "\" is a string that is not UTF-8 padded with NUL");
+      }
+    }
     links_in("/notes");
   }
 

@@ -2880,6 +2880,19 @@ CASES = {
         "18 names little-endian int64, so the value is refused whatever "
         "it decodes to.",
         errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_notes_ascii": mk(
+        then(mesh_base, lambda f: string_attr_as(
+            f.create_group("notes"), "solver", "fun3d",
+            h5py.h5t.CSET_ASCII, h5py.h5t.STR_NULLPAD)), {},
+        "A note stored as an ASCII string. /notes is free-form in what "
+        "it says and not in how it stores a string (section 11).",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_notes_vlen": mk(
+        then(mesh_base, lambda f: vattr(f.create_group("notes"),
+                                        "solver", "fun3d")), {},
+        "A note stored as a variable-length string, which section 18 "
+        "forbids anywhere in the file.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
     "err_e19_string_encoding": mk(
         then(mesh_base, strings_not_utf8_nulpad), {},
         "Two units attributes that are fixed-length strings but not the "
@@ -2990,6 +3003,12 @@ CASES = {
         mesh_base, {"region_raw": [b"in\x00et", b"outlet"]},
         "A category table entry with a NUL byte in the middle of the "
         "string rather than in its trailing padding.",
+        errors=["E26"], support_ids={"s0": MESH_SID}),
+    "err_e26_notes": mk(
+        then(mesh_base, lambda f: rattr(f.create_group("notes"),
+                                        "solver", b"fun\x003d")), {},
+        "A note holding a NUL byte before its padding, which no string "
+        "in the file may hold (section 18).",
         errors=["E26"], support_ids={"s0": MESH_SID}),
     "err_e27": mk(
         mesh_base, {"cl_contiguous": True},
