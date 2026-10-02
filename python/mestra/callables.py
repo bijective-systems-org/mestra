@@ -236,7 +236,9 @@ def callable_from_dict(kind: str, d: Mapping[str, Any],
     # than the one this class would make up.
     if hasattr(made, "_repr"):
         made._repr = repr_line
-        made._repr_read = True
+        # A flag for the writer, on the class the registry made rather
+        # than on the four-method protocol it is typed as.
+        made._repr_read = True  # type: ignore[attr-defined]
     return made
 
 
