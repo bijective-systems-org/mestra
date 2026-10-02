@@ -2444,6 +2444,13 @@ def then(builder, change):
     return build
 
 
+def label_table_elsewhere(f):
+    """The region label names a table, "zone", the file does not have."""
+    region = f["supports/s0/cell_arrays/region"]
+    del region.attrs["category"]
+    sattr(region, "category", "zone")
+
+
 def big_endian_attr(obj, name, value):
     """An integer attribute stored big-endian, which section 18 does
     not allow: it names H5T_STD_I64LE."""
@@ -3100,6 +3107,29 @@ CASES = {
         "zero-length row axis. Its shape is (0, 6, 1) and stays that "
         "through a rewrite. Neither group category is used.",
         warnings=["W07"], support_ids={"s0": MESH_SID}),
+    "err_e39_category_key": mk(
+        mesh_base, {"extra_keys": [
+            ("regime", "categorical", [0, 1], "<i4",
+             [("category", "regime")])]},
+        "A categorical key whose category names a table the file does "
+        "not have. There is no table for a value to be outside, so it "
+        "is not E10.",
+        errors=["E39"], support_ids={"s0": MESH_SID}),
+    "err_e39_category_label": mk(
+        then(mesh_base, label_table_elsewhere), {},
+        "A label whose category names a table the file does not have. "
+        "A label may have no table at all, but one it names must exist.",
+        errors=["E39"], support_ids={"s0": MESH_SID}),
+    "err_e39_category_zero_rows": mk(
+        mesh_base, {"n_rows": 0, "mach_values": [], "member_values": [],
+                    "cl_values": [], "pressure": np.zeros((0, 6, 1)),
+                    "extra_keys": [
+                        ("regime", "categorical", [], "<i4",
+                         [("category", "regime")])]},
+        "The missing table of err_e39_category_key in a file with no "
+        "rows: the rule is about the attribute and not the values. "
+        "W07 is the group table no row uses.",
+        errors=["E39"], warnings=["W07"], support_ids={"s0": MESH_SID}),
     "err_e39_kind": mk(
         lambda f, o: (case_support_kind_none(f),
                       f["supports/s0"].attrs.__delitem__("kind")),

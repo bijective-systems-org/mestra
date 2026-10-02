@@ -585,7 +585,10 @@ class _FileValidator:
 
     def _categories_of(self, dset: h5py.Dataset, where: str,
                        role: str | None) -> None:
-        """E10 and W07: values against the category table."""
+        """E10 and W07: values against the category table. A table
+        the file does not have is E39 and not E10: the values cannot be
+        checked against nothing, and whether there are any rows to check
+        does not change that."""
         if role not in ("categorical", "group", "split", "status"):
             return
         table_name = _attr(dset, "category")
@@ -593,8 +596,8 @@ class _FileValidator:
             return
         table = self.categories.get(table_name)
         if table is None:
-            self.error("E10", where, "there is no category table "
-                                     "called %r" % table_name)
+            self.error("E39", where, "the category table %r is not "
+                                     "under /categories" % table_name)
             return
         values = self.values(dset, where)
         if values is None:
@@ -1095,14 +1098,15 @@ class _FileValidator:
             self._float64(dset, where, "a %s array" % role)
 
     def _label(self, dset: h5py.Dataset, where: str) -> None:
-        """E10: a label whose table does not hold one of its values."""
+        """E10: a label whose table does not hold one of its values;
+        E39 when the table it names is not in the file."""
         table_name = _attr(dset, "category")
         if table_name is None:
             return                  # its values are its own categories
         table = self.categories.get(table_name)
         if table is None:
-            self.error("E10", where, "there is no category table "
-                                     "called %r" % table_name)
+            self.error("E39", where, "the category table %r is not "
+                                     "under /categories" % table_name)
             return
         values = self.values(dset, where)
         if values is None:

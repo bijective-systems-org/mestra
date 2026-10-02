@@ -523,6 +523,8 @@ function role = checkOneKey(ctx, g, name, path)
     if ismember(role, {'categorical', 'group', 'split', 'status'})
         if ~H5.hasAttr(did, 'category')
             rep.add('E39', path, 'a %s key needs a category table', role);
+        else
+            checkTableExists(ctx, did, path);
         end
     end
     if strcmp(role, 'time') && ~isempty(ctx.groupKeys) && ...
@@ -579,16 +581,19 @@ function checkKeyValues(ctx, did, path, role, values)
     rep = ctx.rep;
     if isempty(values), return, end
     if ismember(role, {'categorical', 'group', 'split', 'status'})
-        if ismember(strAttr(did, 'category'), ctx.unreadTables), return, end
-        table = categoryEntries(ctx, strAttr(did, 'category'));
-        if ~isempty(table) || H5.hasAttr(did, 'category')
-            n = numel(table);
-            bad = values(values < 0 | values >= n);
-            if ~isempty(bad)
-                rep.add('E10', path, ...
-                    'the value %g is outside a table of %d entries', ...
-                    double(bad(1)), n);
-            end
+        name = strAttr(did, 'category');
+        % A table that is not there is E39 (checkTableExists), and one
+        % that would not read is not held against an empty stand-in.
+        if ~ctx.categories.isKey(name) || ismember(name, ctx.unreadTables)
+            return
+        end
+        table = categoryEntries(ctx, name);
+        n = numel(table);
+        bad = values(values < 0 | values >= n);
+        if ~isempty(bad)
+            rep.add('E10', path, ...
+                'the value %g is outside a table of %d entries', ...
+                double(bad(1)), n);
         end
         return
     end
@@ -1318,8 +1323,12 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
 end
 
 function checkLabelValues(ctx, oid, info, path)
+    if ~mestra.internal.H5.hasAttr(oid, 'category')
+        return          % a label without a table is its own categories
+    end
+    if ~checkTableExists(ctx, oid, path), return, end
     name = strAttr(oid, 'category');
-    if isempty(name) || ismember(name, ctx.unreadTables), return, end
+    if ismember(name, ctx.unreadTables), return, end
     table = categoryEntries(ctx, name);
     try
         values = double(mestra.internal.H5.readData(oid, info));
@@ -1842,6 +1851,24 @@ function checkPrivate(ctx)
 end
 
 % ========================================================== fetching
+
+function tf = checkTableExists(ctx, oid, path)
+%checkTableExists  E39: a category attribute naming no table.
+%   The attribute is there and refers to nothing, so the values it was
+%   to be checked against cannot be checked at all.  That is E39 and
+%   not E10, and it does not depend on there being any rows.  A
+%   category that is not text is E19 and names nothing to look for.
+    [name, ok] = mestra.internal.H5.scalarAttr(oid, 'category');
+    if ~ok || ~ischar(name) || (~isempty(name) && ~isrow(name))
+        tf = false;
+        return
+    end
+    tf = ctx.categories.isKey(name);
+    if ~tf
+        ctx.rep.add('E39', path, ...
+            'the category table "%s" is not under /categories', name);
+    end
+end
 
 function checkUnits(rep, oid, path)
 %checkUnits  W10: units text that does not match section 32.

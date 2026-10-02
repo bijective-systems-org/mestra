@@ -1,0 +1,1 @@
+{"codec":{},"description":"A label whose category names a table the file does not have. A label may have no table at all, but one it names must exist.","evaluation":[],"probes":[],"support_ids":{"s0":"96df395d80ef548444562292de441525ba0b5c8ad00a8dadff19a19c943936c7"},"validator":{"errors":["E39"],"warnings":[]}}

@@ -639,7 +639,11 @@ rule.
        `format`, `writer` and `created`, E31 `components`, and W06
        `recomputed`. This rule is what covers units on a key of role
        `design`, `condition` or `time`, units on coordinates and
-       units on a derived array
+       units on a derived array. It also covers a `category`, on a
+       key or on a label, that names no table under `/categories`:
+       the attribute refers to nothing, so the values cannot be held
+       against a table at all, which is not E10, and the finding does
+       not depend on the file having rows
   E40  a link in the public tree that is not a hard link: a soft
        link, whether it resolves, dangles or loops, or an external
        link. A reader never follows one (section 29)
@@ -799,6 +803,10 @@ Roles and rules:
     `/private`; it was not decidable before. E39 was added for a required
     attribute of section 19 that is simply absent, which nothing covered
     (section 14).
+  - A `category` that names no table in the file is E39 and not E10. E10
+    is a value outside a table that exists; with no table there is
+    nothing to be outside, and implementations had said E10, E39, or
+    nothing at all when the file had no rows (section 14).
   - E11 covers units on a field and a scalar; E39 covers units on a key,
     on coordinates and on a derived array; `weight` and `normal` need none
     (section 14).
