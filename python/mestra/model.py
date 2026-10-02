@@ -606,7 +606,8 @@ class _Arrays(dict):
 class Support:
     """The structure a field lives on: a mesh, an axis, or none.
 
-    It carries `kind`, `n_nodes`, `n_cells`, the three cell arrays,
+    It carries `kind` (None when a file it was read from did not say
+    it), `n_nodes`, `n_cells`, the three cell arrays,
     `support_id`, and the arrays on it: `coordinates`, which a
     support has exactly one of and is part of what the support is,
     and `node_arrays` and `cell_arrays`, which hold every other one.
@@ -615,7 +616,7 @@ class Support:
     `set_callable_coordinates`.
     """
 
-    def __init__(self, name: str, kind: str = "mesh", *,
+    def __init__(self, name: str, kind: str | None = "mesh", *,
                  n_nodes: int = 0, n_cells: int = 0,
                  cell_types: Any = None, cell_offsets: Any = None,
                  cell_connectivity: Any = None,
@@ -709,7 +710,22 @@ class Support:
         Coordinates of a mesh support are not hashed, because they
         may vary between rows while the support does not; the
         coordinates of an axis support are part of its identity.
+
+        The declared kind decides which arrays are hashed, so a
+        support that declares none, or one section 6 does not name,
+        has no digest and this refuses it (E39, E02).
         """
+        if self.kind is None:
+            raise MestraError(
+                "E39", "support %s does not say its kind, and the kind "
+                "decides which of its arrays section 24 hashes, so it has "
+                "no support_id" % self.name, self.name)
+        if self.kind not in SUPPORT_KINDS:
+            raise MestraError(
+                "E02", "support %s is of kind %r, which section 6 does not "
+                "have, so section 24 says nothing about which of its "
+                "arrays to hash and it has no support_id"
+                % (self.name, self.kind), self.name)
         axis_coordinates = None
         if (self.kind == "axis" and self.coordinates is not None
                 and self.coordinates.data is not None):

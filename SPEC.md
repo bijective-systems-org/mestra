@@ -812,6 +812,10 @@ Roles and rules:
     role: each is one word from a closed list, and a word outside it says
     nothing a reader can act on. Only one implementation had reported an
     unknown kind (as E39) and only one an unknown statistic (section 14).
+  - A support that declares no kind, or a kind section 6 does not have,
+    has no digest. The kind decides which arrays are hashed, and
+    implementations took such a support for a mesh or hashed its node
+    count alone, so one file had two ids (section 24).
   - A `category` that names no table in the file is E39 and not E10. E10
     is a value outside a table that exists; with no table there is
     nothing to be outside, and implementations had said E10, E39, or
@@ -1602,6 +1606,11 @@ to 4, so it breaks E38 and its digest still matches. This is the same
 choice as the paragraph above, for the same reason: one broken rule
 should not make a second rule fire as well.
 
+A support that declares no kind (E39), or a kind section 6 does not
+have (E02), has no digest. Nothing says which steps it takes, and an
+implementation must not compute one by taking it for a mesh or for
+anything else: it refuses, and E08 is not decided for it.
+
 The attribute is the digest in lower-case hexadecimal, 64 characters.
 A digest that does not match the stored arrays is an error (E08).
 
@@ -1947,7 +1956,9 @@ expected.json is canonical JSON (below) with exactly these fields:
                 produce, with no duplicates. A file that must validate
                 cleanly has two empty lists.
   support_ids   an object from support group name to the 64-character
-                lower-case hexadecimal digest
+                lower-case hexadecimal digest. A support that has no
+                digest (section 24) is not in it, and an implementation
+                must refuse to compute one for it
   probes        a list of objects, each naming one stored value:
                   slot       the HDF5 path of the dataset, for example
                              "/supports/s0/node_arrays/pressure"

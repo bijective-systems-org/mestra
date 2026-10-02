@@ -2177,7 +2177,13 @@ def _validate_dataset(ds: Dataset) -> Report:
         if support.kind == "mesh" and support.cell_types is None:
             error("E38", where, "a mesh support carries cell_types, "
                                 "cell_offsets and cell_connectivity")
+        if support.kind is None:
+            error("E39", where, "a support carries kind")
+        elif support.kind not in SUPPORT_KINDS:
+            error("E02", where, "%r is not a kind of support of section 6"
+                  % support.kind)
         if support.stored_support_id is not None and \
+                support.kind in SUPPORT_KINDS and \
                 support.stored_support_id != support.computed_support_id():
             error("E08", where, "the stored support_id does not match "
                                 "the arrays")

@@ -557,6 +557,28 @@ classdef PackageTest < matlab.unittest.TestCase
             end
         end
 
+        function aSupportWithoutAKindItDeclaresHasNoDigest(testCase)
+        %aSupportWithoutAKindItDeclaresHasNoDigest  Section 24: the
+        %   declared kind decides which arrays are hashed, so a support
+        %   that declares none, or one section 6 does not have, has no
+        %   digest.  This hashed the node count alone for both.
+            cases = {'err_e39_kind_mesh', 'mestra:E39'; ...
+                     'err_e02_kind', 'mestra:E02'};
+            for i = 1:size(cases, 1)
+                file = fullfile(corpusRoot(), cases{i, 1}, 'case.mes');
+                fid = H5F.open(file, 'H5F_ACC_RDONLY', 'H5P_DEFAULT');
+                closer = onCleanup(@() H5F.close(fid));
+                map = mestra.internal.H5.scaleMap(fid);
+                g = H5G.open(fid, '/supports');
+                record = mestra.internal.Reader.readSupport(g, 's0', true, ...
+                                                            map);
+                H5G.close(g);
+                clear closer
+                testCase.verifyError(@() mestra.supportId(record), ...
+                                     cases{i, 2}, cases{i, 1});
+            end
+        end
+
         function anEmptyUnitsStringIsW10(testCase)
         %anEmptyUnitsStringIsW10  The empty string is text that does
         %   not match section 32, so it draws W10, as it does in the

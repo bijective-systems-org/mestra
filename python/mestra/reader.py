@@ -42,6 +42,7 @@ from .model import (
     Key,
     MemorySource,
     ScalarSlot,
+    SUPPORT_KINDS,
     Storage,
     Support,
 )
@@ -164,6 +165,9 @@ def support_ids(path: str) -> dict[str, str]:
     support's own arrays and nothing else, and it does not look at
     the file's major version, because the digest is defined over
     bytes and not over what they mean.
+
+    A support that does not declare one of the kinds of section 6
+    has no digest (section 24) and is left out.
     """
     out: dict[str, str] = {}
     with h5safe.open_file(str(path)) as f:
@@ -175,14 +179,19 @@ def support_ids(path: str) -> dict[str, str]:
             if not member.usable or not isinstance(member.obj,
                                                    h5py.Group):
                 continue
-            out[member.name] = _digest_of(member.obj)
+            digest = _digest_of(member.obj)
+            if digest is not None:
+                out[member.name] = digest
     return out
 
 
-def _digest_of(group: h5py.Group) -> str:
-    """One support's digest, reading only what section 24 hashes."""
+def _digest_of(group: h5py.Group) -> str | None:
+    """One support's digest, reading only what section 24 hashes, or
+    None for a support whose kind does not say what that is."""
+    kind = _attr(group, "kind")
+    if kind not in SUPPORT_KINDS:
+        return None
     inside = _by_name(group)
-    kind = _attr(group, "kind") or "mesh"
     cells: list[Any] = [None, None, None]
     if kind == "mesh":
         for at, which in enumerate(("cell_types", "cell_offsets",
@@ -487,7 +496,7 @@ def _read_support(f: h5py.File, ds: Dataset, name: str,
     n_cells = read_attr(group, "n_cells") if "n_cells" in attrs else 0
     support = Support(
         name,
-        read_attr(group, "kind") if "kind" in attrs else "mesh",
+        read_attr(group, "kind") if "kind" in attrs else None,
         n_nodes=n_nodes if isinstance(n_nodes, int) else 0,
         n_cells=n_cells if isinstance(n_cells, int) else 0,
         stored_support_id=(read_attr(group, "support_id")

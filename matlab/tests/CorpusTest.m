@@ -161,14 +161,14 @@ classdef CorpusTest < matlab.unittest.TestCase
         %supportIds  Every digest, computed from the stored arrays.
             CorpusTest.requireCase(testCase, caseName);
             e = CorpusTest.expected(caseName);
-            if ~isfield(e, 'support_ids') || isempty(e.support_ids)
-                return
+            names = {};
+            if isfield(e, 'support_ids') && isstruct(e.support_ids)
+                names = fieldnames(e.support_ids);
             end
-            names = fieldnames(e.support_ids);
-            if isempty(names), return, end
             file = CorpusTest.caseFile(caseName);
             fid = H5F.open(file, 'H5F_ACC_RDONLY', 'H5P_DEFAULT');
             closer = onCleanup(@() H5F.close(fid)); %#ok<NASGU>
+            if ~mestra.internal.Reader.hasGroup(fid, 'supports'), return, end
             map = mestra.internal.H5.scaleMap(fid);
             g = H5G.open(fid, '/supports');
             for i = 1:numel(names)
@@ -178,6 +178,25 @@ classdef CorpusTest < matlab.unittest.TestCase
                 got = mestra.supportId(record);
                 testCase.verifyEqual(got, e.support_ids.(name), ...
                     sprintf('%s: the support id of %s', caseName, name));
+            end
+            % A support the expectation leaves out has no digest
+            % (section 24), and asking for one is refused.
+            for name = mestra.internal.H5.children(g)
+                if ismember(name{1}, names) || ~strcmp( ...
+                        mestra.internal.H5.childType(g, name{1}), 'group')
+                    continue
+                end
+                record = mestra.internal.Reader.readSupport(g, name{1}, ...
+                                                            true, map);
+                refused = '';
+                try
+                    mestra.supportId(record);
+                catch err
+                    refused = err.identifier;
+                end
+                testCase.verifyTrue( ...
+                    ismember(refused, {'mestra:E39', 'mestra:E02'}), ...
+                    sprintf('%s: %s has no support id', caseName, name{1}));
             end
             H5G.close(g);
         end

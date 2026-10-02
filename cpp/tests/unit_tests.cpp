@@ -109,6 +109,48 @@ void support_id_vectors() {
       "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc");
 }
 
+// Section 24: the declared kind decides which arrays are hashed, so a
+// support that declares none, or one section 6 does not have, has no
+// digest.  Both of these took such a support for a mesh.
+void support_id_needs_a_kind() {
+  const auto refusal = [](const std::function<void()>& ask) {
+    try {
+      ask();
+    } catch (const mestra::Error& e) {
+      return e.rule();
+    }
+    return std::string("none");
+  };
+  mestra::Support s;
+  s.name = "s0";
+  s.n_nodes = 6;
+  s.cell_types = {9, 9};
+  s.cell_offsets = {0, 4, 8};
+  s.cell_connectivity = {0, 1, 4, 3, 1, 2, 5, 4};
+  s.kind = "";
+  check::equal("a support without its kind has no digest",
+               refusal([&] { s.computed_support_id(); }),
+               std::string("E39"));
+  s.kind = "grid";
+  check::equal("a support of a kind section 6 does not have has no digest",
+               refusal([&] { s.computed_support_id(); }),
+               std::string("E02"));
+  check::equal(
+      "nor does a kind-less support in a file",
+      refusal([] {
+        mestra::support_id_of("../../vectors/cases/err_e39_kind_mesh/case.mes",
+                              "s0");
+      }),
+      std::string("E39"));
+  check::equal(
+      "nor a support of an unknown kind in a file",
+      refusal([] {
+        mestra::support_id_of("../../vectors/cases/err_e02_kind/case.mes",
+                              "s0");
+      }),
+      std::string("E02"));
+}
+
 void units_parser() {
   // Everything the corpus carries must parse.
   for (const char* good : {"1", "m", "Pa", "degree", "s", "K", "W",
@@ -1677,6 +1719,7 @@ void an_axis_on_an_unnamed_object() {
 int main() {
   sha256_vectors();
   support_id_vectors();
+  support_id_needs_a_kind();
   units_parser();
   codec_values();
   affine_worked_example();

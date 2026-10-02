@@ -1,0 +1,1 @@
+{"codec":{},"description":"A mesh support without its kind. It has no digest, though the one it would have as a mesh is stored beside it, so E08 is not decided for it either.","evaluation":[],"probes":[],"support_ids":{},"validator":{"errors":["E39"],"warnings":[]}}

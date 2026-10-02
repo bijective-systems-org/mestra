@@ -318,3 +318,21 @@ def test_a_mesh_without_its_kind_is_e39_alone(tmp_path):
     with h5py.File(path, "r+") as f:
         del f["/supports/s0"].attrs["kind"]
     assert mestra.validate(path).error_ids == ["E39"]
+
+
+def test_a_support_without_a_kind_it_declares_has_no_digest():
+    """Section 24: the declared kind decides which arrays are hashed,
+    so a support that declares none, or one section 6 does not have,
+    has no digest. The reader's digest took a kind-less support for a
+    mesh, and the model's hashed an unknown kind's node count alone."""
+    from mestra.model import Support
+    cells = dict(n_nodes=6, cell_types=[9, 9], cell_offsets=[0, 4, 8],
+                 cell_connectivity=[0, 1, 4, 3, 1, 2, 5, 4])
+    with pytest.raises(mestra.MestraError) as refused:
+        Support("s0", None, **cells).computed_support_id()
+    assert refused.value.rule == "E39"
+    with pytest.raises(mestra.MestraError) as refused:
+        Support("s0", "grid", **cells).computed_support_id()
+    assert refused.value.rule == "E02"
+    assert mestra.support_ids(corpus.case_path("err_e39_kind_mesh")) == {}
+    assert mestra.support_ids(corpus.case_path("err_e02_kind")) == {}

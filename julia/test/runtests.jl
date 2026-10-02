@@ -216,7 +216,6 @@ end
 @testset "corpus: support ids" begin
     for name in case_names()
         e = expected(name)
-        isempty(e.support_ids) && continue
         # the corpus carries files that break a structural rule on
         # purpose, and probing one is a non-strict read
         ds = Mestra.read(case_file(name); strict = false)
@@ -224,6 +223,13 @@ end
             i = Mestra.support_by_name(ds, String(sname))
             @test i !== nothing
             @test Mestra.support_id(ds.supports[i]) == String(want)
+        end
+        # A support the expectation leaves out has no digest (section
+        # 24), and asking for one is refused.
+        listed = Set(String.(keys(e.support_ids)))
+        for s in ds.supports
+            s.name in listed && continue
+            @test_throws Mestra.MestraError Mestra.support_id(s)
         end
     end
 end
@@ -1142,6 +1148,21 @@ end
     end
     @test Mestra.validate(path).errors == ["E39"]
     @test Mestra.validate(case_file("err_e39_kind")).errors == ["E39"]
+end
+
+@testset "a support without a kind it declares has no digest (section 24)" begin
+    # The declared kind decides which arrays are hashed; this hashed the
+    # node count alone for a support that declared none.
+    rule(f) = try
+        f()
+        "none"
+    catch e
+        e isa Mestra.MestraError ? e.rule : "not a MestraError"
+    end
+    no_kind = Mestra.read(case_file("err_e39_kind_mesh"); strict = false)
+    @test rule(() -> Mestra.support_id(no_kind.supports[1])) == "E39"
+    grid = Mestra.read(case_file("err_e02_kind"); strict = false)
+    @test rule(() -> Mestra.support_id(grid.supports[1])) == "E02"
 end
 
 @testset "a link anywhere in the public tree is E40 (sections 14 and 29)" begin

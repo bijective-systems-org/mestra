@@ -2444,6 +2444,18 @@ def then(builder, change):
     return build
 
 
+def support_kind_absent(f):
+    """The support does not say what kind it is."""
+    del f["supports/s0"].attrs["kind"]
+
+
+def support_kind_grid(f):
+    """The support says it is a "grid", a kind section 6 does not have."""
+    support = f["supports/s0"]
+    del support.attrs["kind"]
+    sattr(support, "kind", "grid")
+
+
 def label_table_elsewhere(f):
     """The region label names a table, "zone", the file does not have."""
     region = f["supports/s0/cell_arrays/region"]
@@ -2665,6 +2677,11 @@ CASES = {
         mesh_base, {"mach_no_role": True},
         "A key with no role attribute.",
         errors=["E02"], support_ids={"s0": MESH_SID}),
+    "err_e02_kind": mk(
+        then(mesh_base, support_kind_grid), {},
+        "A support whose kind is \"grid\", which is not one of the "
+        "three kinds of section 6. It has no digest (section 24).",
+        errors=["E02"], support_ids={}),
     "err_e02_statistic": mk(
         mesh_base, {"pressure_extra": [("statistic", "median"),
                                        ("of", "pressure")]},
@@ -3149,8 +3166,14 @@ CASES = {
         "The support of kind none without its kind. That is E39, and no "
         "rule that depends on the kind applies to a support that does not "
         "say it: it is not taken for a mesh missing its cells and its "
-        "coordinates. Its digest is n_nodes alone whatever the kind.",
-        errors=["E39"], support_ids={"s0": NONE_SID}),
+        "coordinates, and it has no digest (section 24).",
+        errors=["E39"], support_ids={}),
+    "err_e39_kind_mesh": mk(
+        then(mesh_base, support_kind_absent), {},
+        "A mesh support without its kind. It has no digest, though the "
+        "one it would have as a mesh is stored beside it, so E08 is not "
+        "decided for it either.",
+        errors=["E39"], support_ids={}),
     "err_e39_varies": mk(
         then(mesh_base, lambda f: f["supports/s0/node_arrays/pressure"]
              .attrs.__delitem__("varies")), {},
