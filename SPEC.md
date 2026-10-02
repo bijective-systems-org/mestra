@@ -635,7 +635,10 @@ rule.
   E34  a group-varying array whose leading dimension length differs
        from the number of categories of its group key
   E35  an `axis` support whose coordinates do not have `varies = none`
-  E36  a `source` that is neither `data` nor `callable:<id>`
+  E36  a `source` that is neither `data` nor `callable:<id>`, which
+       includes `callable:` with an empty id. Such a slot says neither
+       that it holds data nor which callable serves it, so E14, E30
+       and the `output` of E39 are not decided for it
   E37  `aligned` disagreeing with the number of supports declared:
        true with more than one, or false with at most one
   E38  a mesh support missing `cell_types`, `cell_offsets` or
@@ -813,6 +816,10 @@ Roles and rules:
     `/private`; it was not decidable before. E39 was added for a required
     attribute of section 19 that is simply absent, which nothing covered
     (section 14).
+  - `callable:` with nothing after it is E36 alone. It names no callable,
+    so it is not the E14 of a callable that is missing, and it does not
+    say which kind of slot was meant, so E30 and E39 have nothing to
+    decide; two implementations had reported those three (section 14).
   - A string attribute under `/notes` is held to the string encoding of
     section 18 (E19, E26). One implementation did so, one only for a
     variable-length string and NUL bytes, and two not at all, so a note
@@ -1221,7 +1228,7 @@ It is the only way a callable slot can declare its width.
 `node` when it sits under `node_arrays` and `cell` when it sits under
 `cell_arrays`; its support is the support group it sits under; a
 scalar has neither. `source` is either the string `data` or the string
-`callable:<id>` and nothing else (E36).
+`callable:<id>`, with an id that is not empty, and nothing else (E36).
 
 
 20. Cells and cell types

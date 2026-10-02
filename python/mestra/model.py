@@ -76,6 +76,15 @@ STATISTICS = ("value", "mean", "band", "std", "quantile", "draw")
 #: Section 6.
 SUPPORT_KINDS = ("mesh", "axis", "none")
 
+_CALLABLE = "callable:"
+
+
+def is_callable_source(source: Any) -> bool:
+    """True when `source` is `callable:<id>` with an id after the colon
+    (section 19). "callable:" alone names no callable and is E36."""
+    return (isinstance(source, str) and source.startswith(_CALLABLE)
+            and len(source) > len(_CALLABLE))
+
 #: Section 19: which keys are stored as integers.
 _INTEGER_KEY_ROLES = ("categorical", "group", "split", "status")
 
@@ -459,7 +468,7 @@ class Slot:
     @property
     def is_callable(self) -> bool:
         """True when a callable serves this slot rather than data."""
-        return self.source.startswith("callable:")
+        return is_callable_source(self.source)
 
     @property
     def callable_id(self) -> str | None:

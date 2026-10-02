@@ -146,7 +146,11 @@ function Slot(name, location; support = nothing, source = "data",
          Int[dshape...], eltype, chunk, deflate, shuffle, data)
 end
 
-is_callable_slot(s::Slot) = startswith(s.source, "callable:")
+"""True when `source` is `callable:<id>` with an id after the colon;
+"callable:" alone names no callable and is E36 (section 19)."""
+is_callable_source(source::AbstractString) =
+    startswith(source, "callable:") && ncodeunits(source) > 9
+is_callable_slot(s::Slot) = is_callable_source(s.source)
 callable_id(s::Slot) = is_callable_slot(s) ? s.source[10:end] : nothing
 
 # ------------------------------------------- reaching for the numbers

@@ -974,7 +974,7 @@ function check_source!(v::Validator, path, obj, a)
     if src == "data"
         obj isa HDF5.Group && report!(v, "E30", path,
             "a slot whose source is data is a dataset, not a group")
-    elseif startswith(src, "callable:")
+    elseif is_callable_source(src)
         id = src[10:end]
         obj isa HDF5.Dataset && report!(v, "E30", path,
             "a slot served by a callable is a group, not a dataset")
@@ -1003,7 +1003,7 @@ function check_statistic!(v::Validator, path, a)
         return v
     end
     served = haskey(a, "source") && a["source"].value isa AbstractString &&
-             startswith(a["source"].value, "callable:")
+             is_callable_source(a["source"].value)
     if st == "quantile" && !haskey(a, "quantile")
         report!(v, "E12", path, "a quantile statistic with no `quantile`")
     end

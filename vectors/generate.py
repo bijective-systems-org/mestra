@@ -3095,6 +3095,18 @@ CASES = {
         mesh_base, {"cl_source": "model"},
         "A source that is neither data nor callable:<id>.",
         errors=["E36"], support_ids={"s0": MESH_SID}),
+    "err_e36_empty_id": mk(
+        mesh_base, {"cl_as_group": True, "cl_source": "callable:"},
+        "A slot stored as a group whose source is \"callable:\" with no "
+        "id. It names no callable, so it is E36 and not E14, and the "
+        "output a served slot names is not asked of it.",
+        errors=["E36"], support_ids={"s0": MESH_SID}),
+    "err_e36_empty_id_dataset": mk(
+        mesh_base, {"cl_source": "callable:"},
+        "The slot of err_e36_empty_id stored as a dataset. Its source "
+        "says neither data nor a callable, so E30 has nothing to compare "
+        "the storage with.",
+        errors=["E36"], support_ids={"s0": MESH_SID}),
     "err_e36_group": mk(
         affine_base, {"cl_source": "row=99"},
         "A slot stored as a group whose source is neither data nor "

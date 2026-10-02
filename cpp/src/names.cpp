@@ -138,7 +138,11 @@ std::string group_of_varies(const std::string& varies) {
 }
 
 std::string callable_of_source(const std::string& source) {
-  if (source.compare(0, 9, "callable:") == 0) return source.substr(9);
+  // "callable:" alone names no callable: it is E36, like any other
+  // source that is neither word (section 19).
+  if (source.size() > 9 && source.compare(0, 9, "callable:") == 0) {
+    return source.substr(9);
+  }
   return std::string();
 }
 

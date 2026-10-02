@@ -37,6 +37,7 @@ from .model import (
     STATUS_WORDS,
     SUPPORT_KINDS,
     Dataset,
+    is_callable_source,
 )
 from .names import MACHINERY, RESERVED_PREFIX, is_legal_name
 from .units import is_parseable
@@ -1620,8 +1621,10 @@ class _FileValidator:
                 self.error("E30", where, "a slot whose source is data "
                                          "is a dataset, not a group")
             return
-        if not isinstance(source, str) or \
-                not source.startswith("callable:"):
+        if not is_callable_source(source):
+            # "callable:" with nothing after it names no callable, so
+            # it is neither word: E36, and nothing that depends on
+            # which kind of slot was meant (E14, E30, E39).
             self.error("E36", where, "source is data or callable:<id>, "
                                      "and this is %r" % (source,))
             return
@@ -1652,8 +1655,7 @@ class _FileValidator:
         served = False
         if "source" in attrs:
             source = read_attr(obj, "source")
-            served = isinstance(source, str) and \
-                source.startswith("callable:")
+            served = is_callable_source(source)
         if statistic == "quantile" and "quantile" not in attrs:
             self.error("E12", where, "a quantile statistic carries its "
                                      "quantile")
@@ -2243,7 +2245,7 @@ def _check_source(ds: Dataset, slot: Any, where: str,
             error("E30", where, "a slot whose source is data holds "
                                 "data")
         return
-    if not slot.source.startswith("callable:"):
+    if not is_callable_source(slot.source):
         error("E36", where, "source is data or callable:<id>, and this "
                             "is %r" % slot.source)
         return

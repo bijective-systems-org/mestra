@@ -244,7 +244,7 @@ class Validator {
       return;
     }
     const std::string source = text_of(attrs, "source");
-    const bool served = source.compare(0, 9, "callable:") == 0;
+    const bool served = !internal::callable_of_source(source).empty();
     if (statistic == "quantile" && find(attrs, "quantile") == nullptr) {
       error("E12", path, "a quantile statistic with no `quantile`");
     }
