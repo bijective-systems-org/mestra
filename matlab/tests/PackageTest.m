@@ -557,6 +557,29 @@ classdef PackageTest < matlab.unittest.TestCase
             end
         end
 
+        function e18IsReportedAtEachObject(testCase)
+        %e18IsReportedAtEachObject  Section 14: E18 goes beside the rule
+        %   that found the public thing missing, at that object.  This
+        %   reported it once, at /private.
+            r = mestra.validate(fullfile(corpusRoot(), 'err_e18', ...
+                                         'case.mes'));
+            at = {r.findings(strcmp({r.findings.id}, 'E18')).path};
+            testCase.verifyEqual(at, {'/'});
+            path = [tempname() '.mes'];
+            cleanup = onCleanup( ...
+                @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+            copyfile(fullfile(corpusRoot(), 'err_e18_role', 'case.mes'), ...
+                     path);
+            fileattrib(path, '+w');
+            fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+            did = H5D.open(fid, '/keys/mach');
+            H5A.delete(did, 'units');
+            H5D.close(did); H5F.close(fid);
+            r = mestra.validate(path);
+            at = sort({r.findings(strcmp({r.findings.id}, 'E18')).path});
+            testCase.verifyEqual(at, {'/keys/flow', '/keys/mach'});
+        end
+
         function aSupportWithoutAKindItDeclaresHasNoDigest(testCase)
         %aSupportWithoutAKindItDeclaresHasNoDigest  Section 24: the
         %   declared kind decides which arrays are hashed, so a support

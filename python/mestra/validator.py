@@ -469,18 +469,21 @@ class _FileValidator:
 
         Section 29 forbids a validator to interpret /private, so all
         it can say is that public information is missing from a file
-        that carries one.
+        that carries one. It says so at each object the information is
+        missing from, beside the rule that found it (section 14).
         """
         if "private" not in getattr(self, "root", {}):
             return
-        missing = [f for f in self.report.errors
-                   if f.rule in _MISSING_PUBLIC]
-        if missing:
+        missing: dict[str, set[str]] = {}
+        for found in self.report.errors:
+            if found.rule in _MISSING_PUBLIC:
+                missing.setdefault(found.where, set()).add(found.rule)
+        for where, rules in missing.items():
             self.error(
-                "E18", "/private", "public information is missing "
-                "from this file (%s) and the file carries a private "
-                "group; a writer must not put public information only "
-                "there" % ", ".join(sorted({f.rule for f in missing})))
+                "E18", where, "public information is missing here (%s) "
+                "and the file carries a private group; a writer must not "
+                "put public information only there"
+                % ", ".join(sorted(rules)))
 
     # -- category tables
 

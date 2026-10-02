@@ -1854,17 +1854,19 @@ function checkPrivate(ctx)
 %checkPrivate  E18, decided from what a reader can see.
 %   A required public attribute or object absent, by any of E02, E11,
 %   E13, E15, E17, E31 or E39, in a file that also carries a
-%   `/private` group.  It is reported beside that rule and never by
-%   interpreting `/private`, which section 29 forbids.
+%   `/private` group.  It is reported beside that rule, at each object
+%   the public thing is missing from, and never by interpreting
+%   `/private`, which section 29 forbids.
     if ~mestra.internal.H5.exists(ctx.fid, '/private'), return, end
     triggers = {'E02', 'E11', 'E13', 'E15', 'E17', 'E31', 'E39'};
-    for i = 1:numel(triggers)
-        if ctx.rep.has(triggers{i})
-            ctx.rep.add('E18', '/private', ...
-                ['%s found a required public thing missing in a file ' ...
-                 'that also carries a private group'], triggers{i});
-            return
-        end
+    found = ctx.rep.findings;
+    found = found(ismember({found.id}, triggers));
+    places = unique({found.path}, 'stable');
+    for i = 1:numel(places)
+        rules = unique({found(strcmp({found.path}, places{i})).id});
+        ctx.rep.add('E18', places{i}, ...
+            ['%s found a required public thing missing here in a file ' ...
+             'that also carries a private group'], strjoin(rules, ', '));
     end
 end
 

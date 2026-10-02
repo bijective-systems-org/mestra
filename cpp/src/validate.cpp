@@ -736,23 +736,32 @@ void Validator::unknown_dataset(const std::string& path,
 }
 
 void Validator::private_group() {
-  // E18 is reported beside the rule that found the
-  // missing public thing, in a file that also carries /private.  A
-  // writer that moved the public thing into the private part is what
-  // the rule is about; these are the two facts a reader can see, and
-  // it never interprets /private to see them.
+  // E18 is reported beside the rule that found the missing public
+  // thing, at each object it is missing from, in a file that also
+  // carries /private.  A writer that moved the public thing into the
+  // private part is what the rule is about; these are the two facts a
+  // reader can see, and it never interprets /private to see them.
   if (!f_.is_group("/private")) return;
   static const char* kCovered[] = {"E02", "E11", "E13", "E15",
                                    "E17", "E31", "E39"};
+  // One E18 per object, naming every rule that fired there.
+  std::vector<std::pair<std::string, std::string>> missing;
   for (const Finding& f : r_->errors) {
     for (const char* id : kCovered) {
-      if (f.id == id) {
-        error("E18", f.where,
-              std::string("a required public thing is absent (") + id +
-                  ") in a file that also carries a /private group");
-        return;
+      if (f.id != id) continue;
+      auto at = std::find_if(missing.begin(), missing.end(),
+                             [&](const auto& m) { return m.first == f.where; });
+      if (at == missing.end()) {
+        missing.emplace_back(f.where, id);
+      } else {
+        at->second += std::string(", ") + id;
       }
     }
+  }
+  for (const auto& [where, ids] : missing) {
+    error("E18", where,
+          "a required public thing is absent here (" + ids +
+              ") in a file that also carries a /private group");
   }
 }
 

@@ -1150,6 +1150,21 @@ end
     @test Mestra.validate(case_file("err_e39_kind")).errors == ["E39"]
 end
 
+@testset "E18 is reported at each object something is missing from (section 14)" begin
+    # It goes beside the rule that found the public thing missing, at
+    # that object; this reported it once, at /private.
+    at18(path) = sort([f.path for f in Mestra.validate(path).findings
+                       if f.rule == "E18"])
+    @test at18(case_file("err_e18")) == ["/"]
+    path = joinpath(SCRATCH, "e18_two_objects.mes")
+    cp(case_file("err_e18_role"), path; force = true)
+    chmod(path, 0o644)
+    HDF5.h5open(path, "r+") do f
+        HDF5.delete_attribute(f["keys/mach"], "units")
+    end
+    @test at18(path) == ["/keys/flow", "/keys/mach"]
+end
+
 @testset "a support without a kind it declares has no digest (section 24)" begin
     # The declared kind decides which arrays are hashed; this hashed the
     # node count alone for a support that declared none.

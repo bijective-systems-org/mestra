@@ -1631,6 +1631,38 @@ void append_rows_grows_a_file() {
   std::remove(grown.c_str());
 }
 
+// E18 goes beside the rule that found the public thing missing, at
+// each object it is missing from (section 14).  This reported it once,
+// at the first such object, whatever else was missing.
+void e18_at_each_object() {
+  const auto where_e18 = [](const std::string& path) {
+    std::vector<std::string> out;
+    for (const mestra::Finding& f : mestra::validate(path).errors) {
+      if (f.id == "E18") out.push_back(f.where);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  check::is_true("E18 beside a missing root attribute, at the root",
+                 where_e18("../../vectors/cases/err_e18/case.mes") ==
+                     std::vector<std::string>{"/"});
+  const std::string two = "mestra_unit_e18.mes";
+  std::remove(two.c_str());
+  {
+    std::ifstream in("../../vectors/cases/err_e18_role/case.mes",
+                     std::ios::binary);
+    std::ofstream out(two, std::ios::binary);
+    out << in.rdbuf();
+  }
+  const hid_t f = H5Fopen(two.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  H5Adelete_by_name(f, "/keys/mach", "units", H5P_DEFAULT);
+  H5Fclose(f);
+  const std::vector<std::string> want{"/keys/flow", "/keys/mach"};
+  check::is_true("E18 at each of two objects something is missing from",
+                 where_e18(two) == want);
+  std::remove(two.c_str());
+}
+
 // E40 is a link anywhere in the public tree.  The validator once
 // looked only where it enumerated members for its own reasons, which
 // left out /notes and the group a callable slot is; a strict read
@@ -1737,6 +1769,7 @@ int main() {
   bytes_order();
   append_rows_grows_a_file();
   links_anywhere_public();
+  e18_at_each_object();
   unrepresentable_dictionary_entries();
   an_axis_on_an_unnamed_object();
   return check::finish("mestra unit tests");

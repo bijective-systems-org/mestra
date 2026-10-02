@@ -573,9 +573,10 @@ Errors (the file is rejected):
   E17  `format`, `writer`, or `created` missing
   E18  a required public attribute or object absent, by any of E02,
        E11, E13, E15, E17, E31 or E39, in a file that also carries a
-       `/private` group. It is reported beside that rule and never by
-       interpreting `/private`, which section 29 forbids a reader to
-       interpret. A writer that moved the public thing into the
+       `/private` group. It is reported beside that rule, at the path
+       of each object that rule found something missing from, and
+       never by interpreting `/private`, which section 29 forbids a
+       reader to interpret. A writer that moved the public thing into the
        private part is what the rule is about; a reader can only see
        the two facts that make it likely, and says so
 
@@ -808,6 +809,11 @@ Roles and rules:
     `/private`; it was not decidable before. E39 was added for a required
     attribute of section 19 that is simply absent, which nothing covered
     (section 14).
+  - E18 is reported at the object the public thing is missing from, once
+    for each such object, and not at `/private`: the object is what a
+    writer has to fix, and `/private` is the one place a reader may not
+    look. Three implementations had said `/private` and one the first
+    object it found (section 14).
   - E02 covers a support's `kind` and a slot's `statistic` as it covers a
     role: each is one word from a closed list, and a word outside it says
     nothing a reader can act on. Only one implementation had reported an
