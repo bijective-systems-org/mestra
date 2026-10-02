@@ -19,9 +19,9 @@ function out = validate(path)
 %   nothing else: section 28 says a reader must refuse it outright and
 %   must not try to read it partially.
 %
-%   W10 uses a small units parser (mestra.internal.Units) that checks
-%   the UDUNITS grammar and not the names, because shipping a unit
-%   database is not what the rule asks for.
+%   W10 is decided by the units grammar of section 32
+%   (mestra.internal.Units), which looks at the shape of a string and
+%   never at its names, so no unit database is involved.
 %
 %   A file is untrusted input, so the pass is per object: an object
 %   that will not open or will not read stops that object and nothing
@@ -514,15 +514,12 @@ function role = checkOneKey(ctx, g, name, path)
         rep.add('E02', path, 'the role is "%s"', role);
     end
 
-    units = strAttr(did, 'units');
     if ismember(role, {'design', 'condition', 'time'})
         if ~H5.hasAttr(did, 'units')
             rep.add('E39', path, 'a %s key needs units', role);
         end
     end
-    if ~isempty(units) && ~mestra.internal.Units.parses(units)
-        rep.add('W10', path, 'the units "%s" do not parse', units);
-    end
+    checkUnits(rep, did, path);
     if ismember(role, {'categorical', 'group', 'split', 'status'})
         if ~H5.hasAttr(did, 'category')
             rep.add('E39', path, 'a %s key needs a category table', role);
@@ -768,11 +765,7 @@ function checkOneScalar(ctx, g, name, path)
     if ~H5.hasAttr(oid, 'units')
         ctx.rep.add('E11', path, 'a scalar needs units');
     else
-        units = strAttr(oid, 'units');
-        if ~isempty(units) && ~mestra.internal.Units.parses(units)
-            ctx.rep.add('W10', path, ...
-                'the units "%s" do not parse', units);
-        end
+        checkUnits(ctx.rep, oid, path);
     end
     checkSource(ctx, oid, path, isGroup);
     checkStatistic(ctx, oid, path);
@@ -1173,7 +1166,6 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
 
     role = strAttr(oid, 'role');
     varies = strAttr(oid, 'varies');
-    units = strAttr(oid, 'units');
     if isempty(role) || ~ismember(role, arrayRoles())
         rep.add('E02', path, 'the role is "%s"', role);
     end
@@ -1189,9 +1181,7 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
            ~H5.hasAttr(oid, 'units')
         rep.add('E39', path, 'a %s array needs units', role);
     end
-    if ~isempty(units) && ~mestra.internal.Units.parses(units)
-        rep.add('W10', path, 'the units "%s" do not parse', units);
-    end
+    checkUnits(rep, oid, path);
     if strcmp(role, 'derived') && ...
        (~H5.hasAttr(oid, 'derived_from') || ~H5.hasAttr(oid, 'recipe'))
         rep.add('E13', path, ...
@@ -1852,6 +1842,19 @@ function checkPrivate(ctx)
 end
 
 % ========================================================== fetching
+
+function checkUnits(rep, oid, path)
+%checkUnits  W10: units text that does not match section 32.
+%   The empty string is text and does not match, so it draws W10 like
+%   any other.  A units attribute that is not a string at all is E19,
+%   drawn by checkAttrEncodings, and is not also text that does not
+%   parse.
+    [value, ok] = mestra.internal.H5.scalarAttr(oid, 'units');
+    if ok && ischar(value) && (isempty(value) || isrow(value)) && ...
+       ~mestra.internal.Units.parses(value)
+        rep.add('W10', path, 'the units "%s" do not parse', value);
+    end
+end
 
 function v = strAttr(oid, name)
     v = mestra.internal.Reader.str(oid, name);

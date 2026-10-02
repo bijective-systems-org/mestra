@@ -162,6 +162,35 @@ end
     end
 end
 
+@testset "units grammar verdicts (section 32)" begin
+    # The strings the four implementations were compared on, and a few
+    # more that pin one reading each. Every implementation carries this
+    # list and must give these verdicts.
+    parses = ("1", "Pa", "m s-1", "W m-2", "m2 s-2", "kg m-3", "m/s",
+              "m s^-1", "m**2", "m.s-1", "m*s", "(m)", "((m))", "m (s)",
+              "%", "%%", "m%", "degree", "degree_C", "degC", "K", "km",
+              "mm", "um", "\u00b5m", "\u03bcm", "\u00b0", "\u00b0C", "rad",
+              "sr", "1e3 m", "10 m", "0.5 m", "-1", "m-1", "m+2", "m^2",
+              "m^-2", "m^+2", "s^0.5", "per s", "m per s",
+              "days since 2000-01-01",
+              "seconds since 1970-01-01T00:00:00Z",
+              "hours since 2000-01-01 00:00:00", "K @ 273.15",
+              "lg(re 1 mW)", "log(re 1)", "qux", "furlong", "m m", "m  s",
+              " m", "m ", "mol", "cd", "A", "N", "J", "W", "V", "Ohm",
+              "ohm", "S", "Hz", "dB", "count", "percent", "ppm", "1/s",
+              "kg.m.s-2", "m2.s-1",
+              # "m -1" is m times -1, "m-s" is m times s, "m2s" one name.
+              "m -1", "m-s", "m2s", "m^-2.5", "lg(re: 1 mW)", "log(m)")
+    for u in parses
+        @test Mestra.parse_units(u)
+    end
+    # "+" is a sign of a power and never an operator; the only space is
+    # U+0020.
+    for u in ("m per", "/s", "s/", "m//s", "m*/s", "m+s", "m\ts", "  ")
+        @test !Mestra.parse_units(u)
+    end
+end
+
 @testset "support_id worked examples (section 24)" begin
     @test Mestra.support_id(6; cell_types = UInt8[9, 9],
                             cell_offsets = Int64[0, 4, 8],

@@ -126,6 +126,36 @@ void units_parser() {
   // refused rather than recursed on.
   check::is_true("a deep run of parentheses is refused",
                  !mestra::units_parse(std::string(100000, '(') + "m"));
+
+  // The verdicts of section 32 on the strings the four implementations
+  // were compared on, and a few more that pin one reading each. Every
+  // implementation carries this list.
+  for (const char* good : {
+           "1", "Pa", "m s-1", "W m-2", "m2 s-2", "kg m-3", "m/s",
+           "m s^-1", "m**2", "m.s-1", "m*s", "(m)", "((m))", "m (s)",
+           "%", "%%", "m%", "degree", "degree_C", "degC", "K", "km",
+           "mm", "um", "\xc2\xb5m", "\xce\xbcm", "\xc2\xb0",
+           "\xc2\xb0" "C", "rad", "sr", "1e3 m", "10 m", "0.5 m", "-1",
+           "m-1", "m+2", "m^2", "m^-2", "m^+2", "s^0.5", "per s",
+           "m per s", "days since 2000-01-01",
+           "seconds since 1970-01-01T00:00:00Z",
+           "hours since 2000-01-01 00:00:00", "K @ 273.15",
+           "lg(re 1 mW)", "log(re 1)", "qux", "furlong", "m m", "m  s",
+           " m", "m ", "mol", "cd", "A", "N", "J", "W", "V", "Ohm",
+           "ohm", "S", "Hz", "dB", "count", "percent", "ppm", "1/s",
+           "kg.m.s-2", "m2.s-1",
+           // "m -1" is m times -1, "m-s" is m times s, "m2s" one name.
+           "m -1", "m-s", "m2s", "m^-2.5", "lg(re: 1 mW)", "log(m)"}) {
+    check::is_true(std::string("section 32 accepts \"") + good + "\"",
+                   mestra::units_parse(good));
+  }
+  // "+" is a sign of a power and never an operator; the only space is
+  // U+0020.
+  for (const char* bad : {"m per", "/s", "s/", "m//s", "m*/s", "m+s",
+                          "m\ts", "  "}) {
+    check::is_true(std::string("section 32 refuses \"") + bad + "\"",
+                   !mestra::units_parse(bad));
+  }
 }
 
 void codec_values() {

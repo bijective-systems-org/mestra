@@ -2026,8 +2026,9 @@ def _is_iso_utc(text: Any) -> bool:
 
 def _units_text(units: Any, where: str, error: Any, warn: Any) -> None:
     """E19 for a units that is not text at all, W10 for text that
-    does not parse; an in-memory dataset can hold either."""
-    if units is None or units == "":
+    does not parse; an in-memory dataset can hold either. The empty
+    string is text that does not parse, as it is in a file."""
+    if units is None:
         return
     if not isinstance(units, str):
         error("E19", where, "the attribute units is a string, and this "
@@ -2087,7 +2088,7 @@ def _validate_dataset(ds: Dataset) -> Report:
                   % key.role)
             continue
         counted[key.role] = counted.get(key.role, 0) + 1
-        if key.role in ("design", "condition", "time") and not key.units:
+        if key.role in ("design", "condition", "time") and key.units is None:
             error("E39", where, "a %s key carries units" % key.role)
         _units_text(key.units, where, error, warn)
         bounds: list[tuple[str, Any]] = [("lower", key.lower),
@@ -2144,7 +2145,7 @@ def _validate_dataset(ds: Dataset) -> Report:
 
     for name, slot in sorted(ds.scalars.items()):
         where = "/scalars/" + name
-        if not slot.units:
+        if slot.units is None:
             error("E11", where, "a scalar carries units")
         _units_text(slot.units, where, error, warn)
         _check_source(ds, slot, where, error)
@@ -2188,7 +2189,7 @@ def _validate_dataset(ds: Dataset) -> Report:
             if array.role not in ARRAY_ROLES:
                 error("E02", slot_where, "%r is not an array role of "
                                          "section 3" % array.role)
-            if array.role == "field" and not array.units:
+            if array.role == "field" and array.units is None:
                 error("E11", slot_where, "a field carries units")
             _units_text(array.units, slot_where, error, warn)
             if array.role == "derived" and not (array.derived_from

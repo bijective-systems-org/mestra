@@ -3167,6 +3167,43 @@ CASES = {
         "not a key.",
         errors=["E39"], support_ids={"s0": MESH_SID}),
 
+    # ------------------------------------------- units of section 32
+    # Each of these is grammatical and must not draw W10. Before the
+    # grammar was written out, at least one implementation refused
+    # each of them.
+    "units_dot_product": mk(
+        mesh_base, {"mach_units": "m.s-1"},
+        "Units written as a product by \".\", with an integer power "
+        "after the second name.",
+        support_ids={"s0": MESH_SID}),
+    "units_dot_powers": mk(
+        mesh_base, {"mach_units": "kg.m.s-2"},
+        "Three names in a product by \".\", the last with a "
+        "negative power.",
+        support_ids={"s0": MESH_SID}),
+    "units_fractional_power": mk(
+        mesh_base, {"mach_units": "s^0.5"},
+        "A power after \"^\" that is not an integer, the one place "
+        "section 32 is wider than UDUNITS-2.",
+        support_ids={"s0": MESH_SID}),
+    "units_star_power": mk(
+        mesh_base, {"mach_units": "m**2"},
+        "A power written with \"**\".",
+        support_ids={"s0": MESH_SID}),
+    "units_time_since": mk(
+        mesh_base, {"extra_keys": [
+            ("t", "time", [0.0, 1.0], "<f8",
+             [("units", "days since 2000-01-01"),
+              ("trajectory_group", "member")])]},
+        "A time key whose units carry a shift to a date, as CF time "
+        "coordinates do.",
+        support_ids={"s0": MESH_SID}),
+    "units_unknown_name": mk(
+        mesh_base, {"mach_units": "ppm"},
+        "A name no unit table in this repository holds. The verdict "
+        "is the grammar's and not a table's, so it parses.",
+        support_ids={"s0": MESH_SID}),
+
     # -------------------------------------------------------- warnings
     "warn_w01": mk(
         mesh_base, {"n_rows": 4, "mach_values": [0.4, 0.5, 0.7, 0.8],
@@ -3237,6 +3274,11 @@ CASES = {
         mesh_base, {"mach_units": "kg/(m s"},
         "A units string with an unbalanced parenthesis, which no "
         "UDUNITS parser accepts.",
+        warnings=["W10"], support_ids={"s0": MESH_SID}),
+    "warn_w10_dangling_per": mk(
+        mesh_base, {"mach_units": "m per"},
+        "A units string ending in \"per\", which section 32 reads as "
+        "an operator after a power with no power after it.",
         warnings=["W10"], support_ids={"s0": MESH_SID}),
     "warn_w11": mk(
         mesh_base, {"unknown_root_attr": True,
