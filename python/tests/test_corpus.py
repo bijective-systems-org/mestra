@@ -165,3 +165,19 @@ def test_the_description_matches_the_manifest(name):
     described = {case["name"]: case["description"]
                  for case in manifest["cases"]}
     assert described[name] == corpus.expected(name)["description"]
+
+
+#: The rules section 14 leaves implementation-defined at a dataset that
+#: draws E25, because they are decided from the dimensions E25 says
+#: the reader does not know.
+AFTER_E25 = {"E04", "E05", "E16", "E27", "E31", "E34", "E43", "W12"}
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_no_case_compares_what_follows_an_e25(name):
+    """Section 14: the corpus does not compare what a reader finds from
+    the dimensions of a dataset that draws E25, so no file that expects
+    E25 expects one of those rules anywhere."""
+    want = corpus.expected(name)["validator"]
+    if "E25" in want["errors"]:
+        assert not AFTER_E25 & set(want["errors"] + want["warnings"])

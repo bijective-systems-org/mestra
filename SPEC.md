@@ -613,7 +613,13 @@ rule.
        against `varies` is E04, the node or cell count is E05, and
        the component count is E31. A dimension scale dataset is not
        itself subject to this rule and carries no scale on its own
-       axis
+       axis. Once an axis of a dataset draws E25, a reader does not
+       know that dataset's dimensions, and whether it goes on to
+       report there the rules decided from them (E04, E05, E16, E27,
+       E31, E34, E43 and W12) is implementation-defined. The corpus
+       does not compare them: no corpus file has a dataset that draws
+       E25 and would draw one of those. A rule decided without the
+       dimensions, such as the dtype of E20, is reported as usual
   E26  a fixed-length string that is not valid UTF-8, or that holds a
        NUL byte anywhere but in its trailing padding
   E27  `row` not an unlimited dimension, or a row-dimensioned dataset
@@ -855,6 +861,13 @@ Roles and rules:
   - E25 does not fire where the required dimension name follows from an
     attribute another rule already checks, and a dimension scale is not
     subject to it (section 14).
+  - After E25 on a dataset, the rules decided from that dataset's
+    dimensions are implementation-defined there, and the corpus does not
+    compare them. A reader that cannot name an axis can only guess its
+    length and its role, and the four guessed differently, one adding
+    E04, one E27, one leaving out E31; requiring any one guess would
+    make a reader invent a dimension the file does not state (section
+    14).
   - W03 covers a derived array as well as a field and a scalar, and W12
     applies only to a chunked dataset carrying a row dimension: a
     contiguous dataset is E27 or nothing, and scales and dictionary
