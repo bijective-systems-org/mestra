@@ -11,12 +11,22 @@ requires-python = ">=3.10"
 authors = [{name = "Bijective Systems"}]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-keywords = ["simulation", "surrogate", "hdf5", "netcdf", "dataset"]
+keywords = ["simulation", "surrogate", "surrogate-model", "hdf5", "netcdf",
+            "dataset", "cfd", "fea", "cae", "mesh", "uncertainty",
+            "scientific-machine-learning", "parametric-study"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: File Formats",
     "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
     "numpy>=1.24",
@@ -24,11 +34,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bijective-systems/mestra"
-Repository = "https://github.com/bijective-systems/mestra"
-Specification = "https://github.com/bijective-systems/mestra/blob/main/SPEC.md"
-Guide = "https://github.com/bijective-systems/mestra/blob/main/docs/guide.md"
-Issues = "https://github.com/bijective-systems/mestra/issues"
+Homepage = "https://github.com/bijective-systems-org/mestra"
+Repository = "https://github.com/bijective-systems-org/mestra"
+Specification = "https://github.com/bijective-systems-org/mestra/blob/main/SPEC.md"
+Guide = "https://github.com/bijective-systems-org/mestra/blob/main/docs/guide.md"
+Issues = "https://github.com/bijective-systems-org/mestra/issues"
 
 [project.optional-dependencies]
 # Only the checks and the adapters need these; the package itself
