@@ -597,6 +597,13 @@ void conventions_builders() {
   check::equal("a reserved name is refused at build time",
                rule_of([&d] { d.add_scalar("mestra_x", {0.0}, "1"); }),
                std::string("E33"));
+  // Section 18: a name begins with a letter, a digit or an underscore.
+  // "." was legal, and HDF5 reads it as the group itself.
+  for (const char* name : {".", ".x", "-x", "+x"}) {
+    check::equal(std::string("\"") + name + "\" is refused at build time",
+                 rule_of([&d, name] { d.add_scalar(name, {0.0}, "1"); }),
+                 std::string("E33"));
+  }
 }
 
 void conventions_dims() {

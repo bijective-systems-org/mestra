@@ -1766,6 +1766,18 @@ end
     end
     @test e isa Mestra.MestraError && e.rule == "E33"
     @test occursin("E33", sprint(showerror, e))
+    # Section 18: a name begins with a letter, a digit or an underscore.
+    # "." was legal, and HDF5 reads it as the group itself.
+    for name in (".", ".x", "-x", "+x")
+        refused = try
+            Mestra.add_key!(Mestra.Dataset(), name, [1.0]; role = :condition,
+                            units = "1")
+            nothing
+        catch err
+            err
+        end
+        @test refused isa Mestra.MestraError && refused.rule == "E33"
+    end
     ds2 = Mestra.Dataset()
     Mestra.add_key!(ds2, "m", [1.0, 2.0]; role = :condition, units = "1")
     @test_throws Mestra.MestraError Mestra.add_key!(ds2, "g", [0];

@@ -1759,7 +1759,8 @@ def _check_name(name: str) -> None:
     if not is_legal_name(name):
         raise MestraError(
             "E33", "%r is not a legal netCDF-4 name: letters, digits, "
-            "underscore, hyphen, . and + only" % name, name)
+            "underscore, hyphen, . and + only, beginning with a letter, a "
+            "digit or an underscore" % name, name)
     if is_reserved(name):
         raise MestraError(
             "E33", "names beginning with mestra_ are reserved for the "

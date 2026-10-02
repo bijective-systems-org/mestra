@@ -19,7 +19,7 @@ VALID = corpus.valid_case_names()
 
 
 def test_the_corpus_is_where_it_should_be():
-    """149 cases: the band added five, of which `band_stored`,
+    """151 cases: the band added five, of which `band_stored`,
     `affine_band` and `warn_w16` are files a reader accepts and
     `err_e12_band` and `err_e12_callable` are not; served coordinates
     added `callable_coordinates`; the units grammar of section 32
@@ -29,10 +29,11 @@ def test_the_corpus_is_where_it_should_be():
     a statistic that is not a word of the format; `err_e39_kind_mesh`
     has no digest; three `*_notes*` files store a note's string as no
     string may be stored; two `err_e36_empty_id*` files name no
-    callable. `wide_keys` is generated on demand, as
+    callable; two `err_e33_leading_*` files begin a name with a
+    character only its middle may hold. `wide_keys` is generated on demand, as
     vectors/README.md says: `python vectors/generate.py
     --on-demand`."""
-    assert len(CASES) == 149
+    assert len(CASES) == 151
     assert len(VALID) == 56
     assert len(WITH_CODEC) == 12
 

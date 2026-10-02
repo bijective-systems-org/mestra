@@ -816,6 +816,10 @@ Roles and rules:
     `/private`; it was not decidable before. E39 was added for a required
     attribute of section 19 that is simply absent, which nothing covered
     (section 14).
+  - A name begins with a letter, a digit or an underscore, as netCDF-C
+    requires. Without that, "." was a legal name that HDF5 reads as the
+    group itself, and a key named that way could be built in every
+    language and written in none (section 18).
   - `callable:` with nothing after it is E36 alone. It names no callable,
     so it is not the E14 of a callable that is missing, and it does not
     say which kind of slot was meant, so E30 and E39 have nothing to
@@ -1079,7 +1083,8 @@ HDF5 and compares the raw bytes.
 Names. Every group, dataset, attribute and dimension name in the file
 must be a legal netCDF-4 name: not empty, no "/" and no NUL, not
 beginning or ending with a space, and built from letters, digits,
-underscore, hyphen, "." and "+". Names a producer chooses (keys,
+underscore, hyphen, "." and "+", and the first character is a letter,
+a digit or an underscore. Names a producer chooses (keys,
 scalars, category tables, arrays, support groups, callable ids,
 dictionary keys) must not begin with `mestra_`, which this format
 reserves everywhere in the file and not only in the codec (E33).

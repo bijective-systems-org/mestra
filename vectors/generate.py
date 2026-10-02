@@ -3074,6 +3074,16 @@ CASES = {
         "A key whose name ends in a newline, which is not a character a "
         "netCDF-4 name may hold.",
         errors=["E33"], support_ids={"s0": MESH_SID}),
+    "err_e33_leading_dot": mk(
+        mesh_base, {"mach_name": ".mach"},
+        "A key whose name begins with \".\". Section 18 allows \".\" "
+        "inside a name and not as its first character.",
+        errors=["E33"], support_ids={"s0": MESH_SID}),
+    "err_e33_leading_hyphen": mk(
+        mesh_base, {"mach_name": "-mach"},
+        "A key whose name begins with a hyphen, which section 18 allows "
+        "inside a name and not as its first character.",
+        errors=["E33"], support_ids={"s0": MESH_SID}),
     "err_e33_dictionary": mk(
         then(affine_base, lambda f: sattr(f["callables/m1/outputs/cl"],
                                           "fitted@march", "yes")),
