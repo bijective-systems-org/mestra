@@ -526,7 +526,12 @@ Errors (the file is rejected):
 
   E01  `format` missing or not "mestra/<n>" with n this reader
        accepts
-  E02  a key or array without a role, or with a role not in section 3
+  E02  a key or array without a role, or with a role not in section 3;
+       a support whose `kind` is not one of the three words of section
+       6; a slot whose `statistic` is not one of the six words of
+       section 9. What a statistic needs follows from its word, so a
+       slot with a word section 9 does not name is not also judged by
+       E12
   E03  a role's cardinality violated (two time keys; no coordinates
        on a mesh or axis support; two coordinates arrays on one
        support; two units of generalisation)
@@ -803,6 +808,10 @@ Roles and rules:
     `/private`; it was not decidable before. E39 was added for a required
     attribute of section 19 that is simply absent, which nothing covered
     (section 14).
+  - E02 covers a support's `kind` and a slot's `statistic` as it covers a
+    role: each is one word from a closed list, and a word outside it says
+    nothing a reader can act on. Only one implementation had reported an
+    unknown kind (as E39) and only one an unknown statistic (section 14).
   - A `category` that names no table in the file is E39 and not E10. E10
     is a value outside a table that exists; with no table there is
     nothing to be outside, and implementations had said E10, E39, or

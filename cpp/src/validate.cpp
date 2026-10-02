@@ -228,8 +228,21 @@ class Validator {
   // callable serves, one a callable produces (section 10).
   void check_statistic(const std::string& path,
                        const std::vector<RawAttr>& attrs) {
-    const std::string statistic = text_of(attrs, "statistic");
-    if (statistic.empty()) return;
+    // A statistic that is not text is E19 and names nothing to check.
+    const RawAttr* given = find(attrs, "statistic");
+    if (given == nullptr || given->value.kind() != AttrValue::Kind::Str) {
+      return;
+    }
+    const std::string statistic = given->value.as_text();
+    // A word section 9 does not name is E02. What a statistic needs
+    // follows from its word, so E12 has nothing to decide for it.
+    if (statistic != "value" && statistic != "mean" && statistic != "band" &&
+        statistic != "std" && statistic != "quantile" &&
+        statistic != "draw") {
+      error("E02", path,
+            "\"" + statistic + "\" is not a statistic of section 9");
+      return;
+    }
     const std::string source = text_of(attrs, "source");
     const bool served = source.compare(0, 9, "callable:") == 0;
     if (statistic == "quantile" && find(attrs, "quantile") == nullptr) {
@@ -1431,6 +1444,12 @@ void Validator::supports() {
     bool has_kind = false;
     const std::string kind = text_of(attrs, "kind", &has_kind);
     if (!has_kind) error("E39", sp, "a support with no `kind`");
+    const RawAttr* kind_attr = find(attrs, "kind");
+    if (kind_attr != nullptr &&
+        kind_attr->value.kind() == AttrValue::Kind::Str && kind != "mesh" &&
+        kind != "axis" && kind != "none") {
+      error("E02", sp, "\"" + kind + "\" is not a kind of support of section 6");
+    }
     const RawAttr* n_nodes_attr = find(attrs, "n_nodes");
     const RawAttr* n_cells_attr = find(attrs, "n_cells");
     if (n_nodes_attr == nullptr) error("E39", sp, "no `n_nodes`");

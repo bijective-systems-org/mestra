@@ -35,6 +35,7 @@ from .model import (
     KEY_ROLES,
     STATISTICS,
     STATUS_WORDS,
+    SUPPORT_KINDS,
     Dataset,
 )
 from .names import MACHINERY, RESERVED_PREFIX, is_legal_name
@@ -785,6 +786,9 @@ class _FileValidator:
         # applies: a support is not taken for a mesh because it did
         # not say what it is.
         kind = _attr(group, "kind")
+        if kind is not None and kind not in SUPPORT_KINDS:
+            self.error("E02", where, "%r is not a kind of support of "
+                                     "section 6" % kind)
         n_nodes = _attr(group, "n_nodes")
         n_nodes = int(n_nodes) if isinstance(n_nodes, int) else 0
         n_cells = _attr(group, "n_cells")
@@ -938,7 +942,7 @@ class _FileValidator:
         """E08: the digest against the stored arrays (section 24)."""
         if "support_id" not in _names(group):
             return
-        if kind not in ("mesh", "axis", "none"):
+        if kind not in SUPPORT_KINDS:
             # The declared kind decides which steps contribute bytes,
             # so a support that declares none has no digest to check.
             return

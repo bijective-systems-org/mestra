@@ -2665,6 +2665,18 @@ CASES = {
         mesh_base, {"mach_no_role": True},
         "A key with no role attribute.",
         errors=["E02"], support_ids={"s0": MESH_SID}),
+    "err_e02_statistic": mk(
+        mesh_base, {"pressure_extra": [("statistic", "median"),
+                                       ("of", "pressure")]},
+        "A node array whose statistic is \"median\", which is not one "
+        "of the six statistics of section 9.",
+        errors=["E02"], support_ids={"s0": MESH_SID}),
+    "err_e02_statistic_without_of": mk(
+        mesh_base, {"cl_extra": [("statistic", "median")]},
+        "A scalar whose statistic is not a word of section 9 and that "
+        "names no base quantity. E12 decides what a statistic needs "
+        "from its word, so it has nothing to say here.",
+        errors=["E02"], support_ids={"s0": MESH_SID}),
     "err_e03": mk(
         mesh_base, {"extra_keys": [
             ("t1", "time", [0.0, 1.0], "<f8",

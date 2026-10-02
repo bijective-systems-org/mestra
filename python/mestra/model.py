@@ -52,6 +52,7 @@ __all__ = [
     "ARRAY_ROLES",
     "STATISTICS",
     "STATUS_WORDS",
+    "SUPPORT_KINDS",
     "FORMAT",
 ]
 
@@ -71,6 +72,9 @@ ARRAY_ROLES: dict[str, int | None] = {
 
 #: Section 9.
 STATISTICS = ("value", "mean", "band", "std", "quantile", "draw")
+
+#: Section 6.
+SUPPORT_KINDS = ("mesh", "axis", "none")
 
 #: Section 19: which keys are stored as integers.
 _INTEGER_KEY_ROLES = ("categorical", "group", "split", "status")
@@ -1481,9 +1485,9 @@ class Dataset:
                 kind = "axis"
             else:
                 kind = "none"
-        if kind not in ("mesh", "axis", "none"):
+        if kind not in SUPPORT_KINDS:
             raise MestraError(
-                "E03", "a support is mesh, axis or none; pass kind= one "
+                "E02", "a support is mesh, axis or none; pass kind= one "
                 "of those, not %r" % kind, name)
         if coords is not None and not units:
             raise MestraError(

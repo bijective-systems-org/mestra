@@ -903,6 +903,12 @@ function checkOneSupport(ctx, parent, name, index)
         end
     end
     kind = strAttr(sid, 'kind');
+    [given, ok] = H5.scalarAttr(sid, 'kind');
+    if ok && ischar(given) && ...
+       ~any(strcmp(given, {'mesh', 'axis', 'none'}))
+        rep.add('E02', path, ...
+            '"%s" is not a kind of support of section 6', given);
+    end
     nNodes = numAttr(sid, 'n_nodes');
     nCells = numAttr(sid, 'n_cells');
     if isempty(nNodes), nNodes = 0; end
@@ -1488,7 +1494,19 @@ function checkStatistic(ctx, oid, path)
 %   on a slot a callable serves, one a callable produces (section 10).
     H5 = mestra.internal.H5;
     if ~H5.hasAttr(oid, 'statistic'), return, end
-    statistic = strAttr(oid, 'statistic');
+    % A statistic that is not text is E19 and names nothing to check.
+    [statistic, ok] = H5.scalarAttr(oid, 'statistic');
+    if ~ok || ~ischar(statistic) || (~isempty(statistic) && ~isrow(statistic))
+        return
+    end
+    % A word section 9 does not name is E02.  What a statistic needs
+    % follows from its word, so E12 has nothing to decide for it.
+    if ~any(strcmp(statistic, ...
+            {'value', 'mean', 'band', 'std', 'quantile', 'draw'}))
+        ctx.rep.add('E02', path, ...
+            '"%s" is not a statistic of section 9', statistic);
+        return
+    end
     served = false;
     if H5.hasAttr(oid, 'source')
         source = strAttr(oid, 'source');

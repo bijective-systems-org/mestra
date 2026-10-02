@@ -985,6 +985,12 @@ function check_statistic!(v::Validator, path, a)
     haskey(a, "statistic") || return v
     st = a["statistic"].value
     st isa AbstractString || return v
+    # A word section 9 does not name is E02. What a statistic needs
+    # follows from its word, so E12 has nothing to decide for it.
+    if !(st in ("value", "mean", "band", "std", "quantile", "draw"))
+        report!(v, "E02", path, "\"$(st)\" is not a statistic of section 9")
+        return v
+    end
     served = haskey(a, "source") && a["source"].value isa AbstractString &&
              startswith(a["source"].value, "callable:")
     if st == "quantile" && !haskey(a, "quantile")
@@ -1106,8 +1112,13 @@ function check_supports!(v::Validator)
                   Int(a["n_nodes"].value) : 0
         n_cells = haskey(a, "n_cells") && a["n_cells"].value isa Integer ?
                   Int(a["n_cells"].value) : 0
-        kind in ("mesh", "axis", "none") || report!(v, "E39", path,
-            "`kind` must be mesh, axis or none")
+        # A kind that is absent is E39 above, and one that is not text
+        # is E19; a word section 6 does not name is E02.
+        if haskey(a, "kind") && a["kind"].value isa AbstractString &&
+           !(kind in ("mesh", "axis", "none"))
+            report!(v, "E02", path,
+                    "\"$(kind)\" is not a kind of support of section 6")
+        end
         types, offsets, conn = check_cells!(v, path, g, kind, n_nodes, n_cells)
         coords = check_coordinates!(v, path, g, kind, n_nodes)
         if haskey(a, "support_id") && a["support_id"].value isa AbstractString &&
