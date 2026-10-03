@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: >-
+  If you use mestra in published work, please cite it as below, and
+  name the specification version your files declare (the root
+  attribute `format`, for example "mestra/0").
+title: "mestra: an open container for simulation and surrogate data"
+type: software
+authors:
+  - name: "Bijective Systems"
+repository-code: "https://github.com/bijective-systems-org/mestra"
+url: "https://github.com/bijective-systems-org/mestra"
+license: Apache-2.0
+abstract: >-
+  mestra is an open file format for the data of a parametric or
+  time-dependent simulation study and for the surrogate models fitted
+  to it. One HDF5 file, laid out to be a valid netCDF-4 file, holds the
+  rows of a study with keys that carry roles (design, condition, time,
+  group, split, status), scalars with units, fields on a shared mesh
+  or axis, uncertainty, and fitted models as callables; a validator
+  checks what the file claims. Readers and writers in Python, C++,
+  MATLAB and Julia are held to one specification and a shared
+  conformance corpus.
+keywords:
+  - simulation data
+  - surrogate model
+  - parametric study
+  - HDF5
+  - netCDF-4
+  - mesh
+  - scientific machine learning
+  - uncertainty quantification

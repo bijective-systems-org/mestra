@@ -142,3 +142,25 @@ def test_info_on_an_unreadable_file(capsys):
 def test_no_command_prints_help(capsys):
     assert main([]) == 2
     assert "usage" in capsys.readouterr().out
+
+
+def test_a_reader_that_stops_early_is_not_a_file_that_cannot_be_read():
+    """`mestra info f | head`: the pipe closes before the output is
+    written. That says nothing about the file, so there is no
+    traceback and no "cannot be read", in either command."""
+    import subprocess
+    import sys
+
+    run = ("import sys; from mestra.cli import main; "
+           "sys.exit(main(sys.argv[1:]))")
+    for command in ("info", "validate"):
+        child = subprocess.Popen(
+            [sys.executable, "-c", run, command,
+             corpus.case_path("mesh_two_rows")],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        child.stdout.close()        # gone before the child has written
+        err = child.stderr.read().decode()
+        child.stderr.close()
+        child.wait(timeout=120)
+        assert "Traceback" not in err, err
+        assert "cannot be read" not in err

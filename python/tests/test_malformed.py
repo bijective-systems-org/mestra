@@ -326,8 +326,8 @@ def test_a_support_without_a_kind_it_declares_has_no_digest():
     has no digest. The reader's digest took a kind-less support for a
     mesh, and the model's hashed an unknown kind's node count alone."""
     from mestra.model import Support
-    cells = dict(n_nodes=6, cell_types=[9, 9], cell_offsets=[0, 4, 8],
-                 cell_connectivity=[0, 1, 4, 3, 1, 2, 5, 4])
+    cells = {"n_nodes": 6, "cell_types": [9, 9], "cell_offsets": [0, 4, 8],
+             "cell_connectivity": [0, 1, 4, 3, 1, 2, 5, 4]}
     with pytest.raises(mestra.MestraError) as refused:
         Support("s0", None, **cells).computed_support_id()
     assert refused.value.rule == "E39"

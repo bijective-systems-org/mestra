@@ -21,6 +21,7 @@ is `<id> <path>: <message>` and a run ends with
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 from typing import Any
@@ -90,12 +91,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     show.add_argument("file", nargs="+")
     args = parser.parse_args(list(argv) if argv is not None
                              else sys.argv[1:])
-    if args.command == "validate":
-        return _validate(args.file, args.quiet)
-    if args.command == "info":
-        return _info(args.file)
-    parser.print_help()
-    return 2
+    if args.command not in ("validate", "info"):
+        parser.print_help()
+        return 2
+    try:
+        if args.command == "validate":
+            status = _validate(args.file, args.quiet)
+        else:
+            status = _info(args.file)
+        # Flushed here, so that a reader that has gone away is met in
+        # this block and not by the interpreter's flush at exit.
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # Whatever was reading the output stopped (`mestra info f |
+        # head`). Nothing is wrong with the file, so nothing more is
+        # said; stdout goes to the null device so that the interpreter's
+        # own flush at exit does not raise the same error again.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        return 1
+    return status
 
 
 def _validate(paths: Sequence[str], quiet: bool) -> int:
@@ -136,6 +151,9 @@ def _info(paths: Sequence[str]) -> int:
         try:
             with read(path) as ds:
                 _print_dataset(path, ds)
+        except BrokenPipeError:
+            # The output went away, not the file: main() handles it.
+            raise
         except (OSError, MestraError) as exc:
             print("%s: cannot be read: %s" % (path, exc))
             status = 1

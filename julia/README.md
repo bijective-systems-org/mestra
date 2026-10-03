@@ -13,7 +13,7 @@ format is written `mestra`, lower case, everywhere.
 
     julia --project=julia -e 'using Pkg; Pkg.test()'
 
-runs the suite: the 81-case conformance corpus, the hostile files and
+runs the suite: the 151-case conformance corpus, the hostile files and
 the worked examples. Three corpus files are generated rather than
 committed, because of their size; write them once, before the suite
 runs and never while it is running:

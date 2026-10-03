@@ -22,7 +22,7 @@ somebody's code.
 What is in it
 -------------
 
-81 cases, one directory each, holding exactly the two files section
+151 cases, one directory each, holding exactly the two files section
 30 requires:
 
     cases/<case>/case.mes        the golden file
@@ -51,11 +51,14 @@ sorted by name. The cases fall into five groups:
     before section 21 fixed how a scale is created;
   - one file per error identifier of section 14, named `err_<id>`,
     each violating that rule and, where the rule cannot be reached
-    alone, saying so in its description. E37 has two, `err_e37` and
-    `err_e37_false`, one for each direction of the rule, and E12 has
-    three: a statistic with no `of`, a stored band with no level, and
-    a callable slot that declares a draw;
-  - one file per warning identifier, named `warn_<id>`, the same way.
+    alone, saying so in its description. A rule that can be broken in
+    more than one way has a case for each, named `err_<id>_<how>`:
+    E37 has two, `err_e37` and `err_e37_false`, one for each direction
+    of the rule, E12 three (a statistic with no `of`, a stored band
+    with no level, and a callable slot that declares a draw), and E25
+    seven. 81 cases in all;
+  - one file per warning identifier, named `warn_<id>`, the same way,
+    18 in all.
 
 E07 and W09 were retired on 2026-09-20 and have no case. Their
 identifiers are not reused, per section 14: within a major version a

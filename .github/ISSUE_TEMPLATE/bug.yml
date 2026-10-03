@@ -1,0 +1,52 @@
+name: Something does not work
+description: A reader, writer, validator or example does the wrong thing.
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Python
+        - C++
+        - MATLAB
+        - Julia
+        - The specification or the corpus
+        - The documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        `mestra --version` in Python, or the release or commit you
+        built from, and your operating system.
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened
+      description: >-
+        The exact message or output. For a file, the output of
+        `mestra validate FILE` helps too.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: The smallest thing that shows it
+      description: >-
+        A few lines that build the file, or a small file attached
+        here. Files from unknown sources are opened with care, so
+        say where it came from.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
