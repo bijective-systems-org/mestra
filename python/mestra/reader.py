@@ -35,6 +35,7 @@ from .encoding import (
 )
 from .errors import Finding, MestraError
 from .model import (
+    SUPPORT_KINDS,
     ArraySlot,
     CategoryTable,
     Dataset,
@@ -42,7 +43,6 @@ from .model import (
     Key,
     MemorySource,
     ScalarSlot,
-    SUPPORT_KINDS,
     Storage,
     Support,
 )
