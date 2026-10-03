@@ -1,0 +1,38 @@
+name: A change to the format
+description: Something a file cannot say today, and a proposal for how it should.
+labels: ["format"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        The specification and the conformance corpus define the format,
+        so a change lands in both and in every implementation together.
+        CONTRIBUTING.md has the rules this form follows.
+  - type: textarea
+    id: case
+    attributes:
+      label: The file or workflow the format cannot represent
+      description: A concrete case, with its rows, supports and arrays.
+    validations:
+      required: true
+  - type: textarea
+    id: semantics
+    attributes:
+      label: Proposed meaning, and what existing readers do with it
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility under SPEC section 28
+      description: >-
+        Additive within mestra/0 (an optional attribute or group under
+        the unknown-content rules), or a new major version.
+    validations:
+      required: true
+  - type: textarea
+    id: corpus
+    attributes:
+      label: Corpus cases and the change in each implementation
+    validations:
+      required: false
