@@ -486,6 +486,13 @@ def _write_support(ds: Dataset, group: h5py.Group, support: Support,
     if connectivity is not None:
         _dataset(group, "cell_connectivity", connectivity, "<i8",
                  [local["index"]], keep=scales.keep)
+    if support.kind is None:
+        # A support that declares no kind is E39 at validation; a write
+        # with check=False reaches here, and a file carrying no kind would
+        # be refused by every reader, so it is refused before it is written.
+        raise MestraError(
+            "E39", "support %s does not say its kind; pass kind= one of "
+            "mesh, axis or none" % support.name, "/supports/" + support.name)
     write_string_attr(group, "kind", support.kind)
     write_int_attr(group, "n_nodes", support.n_nodes)
     write_int_attr(group, "n_cells", support.n_cells)

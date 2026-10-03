@@ -97,7 +97,7 @@ example per concept, [`SPEC.md`](SPEC.md) is the reference, and each of
 [`julia/`](julia/) has a README for that interface.
 
 Status: **specification version 0**, with Python, MATLAB, C++ and Julia
-implementations checked against a 130-case conformance corpus and a
+implementations checked against a 151-case conformance corpus and a
 hostile-file subset. Within version 0 the meaning of an existing file
 does not change; what may be added, and how, is in
 [CONTRIBUTING.md](CONTRIBUTING.md). MATLAB supports ASCII strings only;

@@ -22,7 +22,7 @@ somebody's code.
 What is in it
 -------------
 
-130 cases, one directory each, holding exactly the two files section
+151 cases, one directory each, holding exactly the two files section
 30 requires:
 
     cases/<case>/case.mes        the golden file
