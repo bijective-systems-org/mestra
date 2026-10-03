@@ -400,6 +400,43 @@ classdef PackageTest < matlab.unittest.TestCase
             testCase.verifyEqual(r.errors, {'E01'});
         end
 
+        function aStringPathWritesAsACharPathDoes(testCase)
+        %aStringPathWritesAsACharPathDoes  "out.mes" and 'out.mes'.
+        %   The checked write stages its file beside the destination
+        %   under a name built from the path.  With a string scalar
+        %   that name came out as a string array and the write failed;
+        %   the unchecked write, which stages nothing, went through.
+        %   A refused write of either form leaves what was there.
+            d = mestra.read(fullfile(corpusRoot(), 'mesh_two_rows', ...
+                                     'case.mes'));
+            out = [tempname() '.mes'];
+            cleanup = onCleanup(@() PackageTest.removeIfPresent(out));
+            mestra.write(d, string(out));
+            r = mestra.validate(out);
+            testCase.verifyEmpty(r.errors, strjoin(r.errors, ','));
+            mestra.write(d, string(out), 'Check', false);
+            r = mestra.validate(string(out));
+            testCase.verifyEmpty(r.errors, strjoin(r.errors, ','));
+
+            bad = mestra.Dataset();
+            bad.created = '2026-09-19T00:00:00Z';
+            bad.addCategoryTable('member', {'a', ['b' char(252)]});
+            bad.addKey('member', int32([0 1]), 'group', ...
+                       'Category', 'member');
+            bad.setGeneralisationGroup('member');
+            before = dir(out);
+            testCase.verifyError(@() mestra.write(bad, string(out)), ...
+                                 'mestra:matlabAscii');
+            after = dir(out);
+            testCase.verifyEqual(after.bytes, before.bytes, ...
+                'a refused write replaced the file that was there');
+            listing = dir(fileparts(out));
+            [~, base] = fileparts(out);
+            staged = startsWith({listing.name}, ['.' base]);
+            testCase.verifyFalse(any(staged), ...
+                'a refused write left its staging file behind');
+        end
+
         function nonAsciiIsRefused(testCase)
         %nonAsciiIsRefused  The one thing MATLAB cannot do, said plainly.
         %   Section 25 puts strings in UTF-8 and counts the declared

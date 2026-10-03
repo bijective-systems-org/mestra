@@ -80,6 +80,10 @@ function write(dataset, path, varargin)
     p.addParameter('Check', true);
     p.parse(varargin{:});
     refuseADestinationThatCannotTakeAFile(path);
+    % One text form from here on: the staging name below is built by
+    % concatenation, which joins a string scalar element by element
+    % into a string array rather than into one name.
+    path = mestra.internal.Args.text(path);
     if ~p.Results.Check
         mestra.internal.Writer.save(dataset, path);
         return
