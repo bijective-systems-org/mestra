@@ -88,6 +88,10 @@ a strict read can refuse a file without reading an array."""
 const STRUCTURAL_RULES = ("E01", "E16", "E19", "E25", "E26", "E29", "E30",
                           "E40", "E41")
 
+"""The rules that find a required public thing missing, beside which
+E18 is reported in a file that carries `/private` (section 14)."""
+const MISSING_PUBLIC = ("E02", "E11", "E13", "E15", "E17", "E31", "E39")
+
 
 mutable struct Validator
     f::HDF5.File
@@ -104,7 +108,6 @@ mutable struct Validator
     keyvals::Dict{String,Any}
     keycat::Dict{String,String}
     gen_group::Union{Nothing,String}
-    missing_public::Bool
     max_elements::Int
     # False when `aligned` is there and is not a boolean section 18
     # defines.  The alignment claim is then not a thing this file
@@ -256,7 +259,7 @@ function validate(path::AbstractString;
                       Set{Tuple{String,String}}(), structural, 0,
                       String[], Int[], true, Dict{String,Vector{String}}(),
                       Dict{String,String}(), Dict{String,Any}(),
-                      Dict{String,String}(), nothing, false,
+                      Dict{String,String}(), nothing,
                       Int(max_elements), true)
         run_validator!(v)
         errs = sort(unique([x.rule for x in v.findings if x.rule[1] == 'E']))
@@ -291,7 +294,6 @@ function check_root!(v::Validator)
     if !haskey(a, "format")
         report!(v, "E01", "/", "no `format` attribute")
         report!(v, "E17", "/", "`format` is missing")
-        v.missing_public = true
     else
         fmt = a["format"].value
         if !(fmt isa AbstractString) || !occursin(r"^mestra/\d+$", fmt)
@@ -304,7 +306,6 @@ function check_root!(v::Validator)
     for name in ("writer", "created")
         if !haskey(a, name)
             report!(v, "E17", "/", "`$(name)` is missing")
-            v.missing_public = true
         end
     end
     if haskey(a, "created") && a["created"].value isa AbstractString &&
@@ -313,7 +314,6 @@ function check_root!(v::Validator)
     end
     if !haskey(a, "aligned")
         report!(v, "E39", "/", "`aligned` is missing")
-        v.missing_public = true
     else
         v.aligned = a["aligned"].value === true
         v.aligned_known = a["aligned"].value isa Bool
@@ -447,6 +447,25 @@ function attr_kind(name::AbstractString)
              "recipe", "reference", "kind", "support_id", "type",
              "repr", "method") && return :string
     return nothing
+end
+
+"""E19 and E26 over attributes the format does not name, as those under
+`/notes` are (section 11): a string among them is stored as section 18
+stores every string, and a number is the producer's choice."""
+function check_free_strings!(v::Validator, path::String,
+                             a::Dict{String,RawAttr})
+    for (name, at) in a
+        at.ti.class === :string || continue
+        if at.ti.vlen
+            report!(v, "E19", path, "`$(name)` is a variable-length string")
+        elseif at.ti.cset != HDF5.API.H5T_CSET_UTF8 ||
+               at.ti.strpad != HDF5.API.H5T_STR_NULLPAD
+            report!(v, "E19", path, "`$(name)` is not UTF-8 with NUL padding")
+        elseif at.scalar && at.readable && !check_string_bytes(at.raw)
+            report!(v, "E26", path, "`$(name)` is not a legal string")
+        end
+    end
+    return v
 end
 
 """E26: valid UTF-8, and no NUL except in the trailing padding."""
@@ -654,7 +673,6 @@ function check_keys!(v::Validator)
             # and it is not missing.
             if !haskey(a, "role")
                 report!(v, "E02", path, "no `role` attribute")
-                v.missing_public = true
             end
             return
         end
@@ -662,7 +680,6 @@ function check_keys!(v::Validator)
             report!(v, "E02", path, "`$(role)` is not a role of section 3")
             # E18 goes beside any E02, as the other implementations
             # read section 14, and not only beside a missing role.
-            v.missing_public = true
             return
         end
         kdims, _ = disk_shape(d)
@@ -677,7 +694,6 @@ function check_keys!(v::Validator)
             if !haskey(a, "units")
                 report!(v, "E39", path,
                         "a $(role) key requires `units` (section 19)")
-                v.missing_public = true
             elseif a["units"].value isa AbstractString
                 parse_units(a["units"].value) || report!(v, "W10", path,
                     "units `$(a["units"].value)` cannot be parsed")
@@ -687,7 +703,6 @@ function check_keys!(v::Validator)
             if !haskey(a, "category")
                 report!(v, "E39", path,
                         "a $(role) key requires `category` (section 19)")
-                v.missing_public = true
             end
         end
         if role == "time" && !isempty(roles_of(v, "group")) &&
@@ -695,7 +710,6 @@ function check_keys!(v::Validator)
             report!(v, "E39", path,
                     "the time key requires `trajectory_group` when the " *
                     "file declares a group key")
-            v.missing_public = true
         end
         check_key_categories!(v, path, name, role, a)
         check_key_bounds!(v, path, name, a)
@@ -705,7 +719,6 @@ function check_keys!(v::Validator)
         report!(v, "E39", "/",
                 "`generalisation_group` is missing where the file " *
                 "declares a group key")
-        v.missing_public = true
     end
     check_time!(v)
     check_split!(v)
@@ -919,7 +932,7 @@ function check_scalars!(v::Validator)
                 "attribute `$(n)` is not one this reader knows")
         end
         haskey(a, "units") || (report!(v, "E11", path,
-            "a scalar requires `units`"); v.missing_public = true)
+            "a scalar requires `units`"))
         haskey(a, "units") && a["units"].value isa AbstractString &&
             !parse_units(a["units"].value) &&
             report!(v, "W10", path, "units cannot be parsed")
@@ -954,7 +967,6 @@ end
 function check_source!(v::Validator, path, obj, a)
     if !haskey(a, "source")
         report!(v, "E39", path, "`source` is missing")
-        v.missing_public = true
         return v
     end
     src = a["source"].value
@@ -962,7 +974,7 @@ function check_source!(v::Validator, path, obj, a)
     if src == "data"
         obj isa HDF5.Group && report!(v, "E30", path,
             "a slot whose source is data is a dataset, not a group")
-    elseif startswith(src, "callable:")
+    elseif is_callable_source(src)
         id = src[10:end]
         obj isa HDF5.Dataset && report!(v, "E30", path,
             "a slot served by a callable is a group, not a dataset")
@@ -970,8 +982,7 @@ function check_source!(v::Validator, path, obj, a)
              haskey(v.f["callables"], id)
         ok || report!(v, "E14", path, "no callable with id `$(id)`")
         haskey(a, "output") || (report!(v, "E39", path,
-            "`output` is required when source is a callable");
-            v.missing_public = true)
+            "`output` is required when source is a callable"))
     else
         report!(v, "E36", path,
                 "`source` is neither `data` nor `callable:<id>`")
@@ -985,8 +996,14 @@ function check_statistic!(v::Validator, path, a)
     haskey(a, "statistic") || return v
     st = a["statistic"].value
     st isa AbstractString || return v
+    # A word section 9 does not name is E02. What a statistic needs
+    # follows from its word, so E12 has nothing to decide for it.
+    if !(st in ("value", "mean", "band", "std", "quantile", "draw"))
+        report!(v, "E02", path, "\"$(st)\" is not a statistic of section 9")
+        return v
+    end
     served = haskey(a, "source") && a["source"].value isa AbstractString &&
-             startswith(a["source"].value, "callable:")
+             is_callable_source(a["source"].value)
     if st == "quantile" && !haskey(a, "quantile")
         report!(v, "E12", path, "a quantile statistic with no `quantile`")
     end
@@ -1098,7 +1115,7 @@ function check_supports!(v::Validator)
         end
         for req in ("kind", "n_nodes", "n_cells", "support_id")
             haskey(a, req) || (report!(v, "E39", path,
-                "`$(req)` is missing"); v.missing_public = true)
+                "`$(req)` is missing"))
         end
         kind = haskey(a, "kind") && a["kind"].value isa AbstractString ?
                a["kind"].value : ""
@@ -1106,8 +1123,13 @@ function check_supports!(v::Validator)
                   Int(a["n_nodes"].value) : 0
         n_cells = haskey(a, "n_cells") && a["n_cells"].value isa Integer ?
                   Int(a["n_cells"].value) : 0
-        kind in ("mesh", "axis", "none") || report!(v, "E39", path,
-            "`kind` must be mesh, axis or none")
+        # A kind that is absent is E39 above, and one that is not text
+        # is E19; a word section 6 does not name is E02.
+        if haskey(a, "kind") && a["kind"].value isa AbstractString &&
+           !(kind in ("mesh", "axis", "none"))
+            report!(v, "E02", path,
+                    "\"$(kind)\" is not a kind of support of section 6")
+        end
         types, offsets, conn = check_cells!(v, path, g, kind, n_nodes, n_cells)
         coords = check_coordinates!(v, path, g, kind, n_nodes)
         if haskey(a, "support_id") && a["support_id"].value isa AbstractString &&
@@ -1287,12 +1309,10 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
                a["role"].value : nothing
         if role === nothing && !haskey(a, "role")
             report!(v, "E02", spath, "no `role` attribute")
-            v.missing_public = true
         elseif role === nothing
             # Stored in the wrong encoding: E19's, not missing.
         elseif !(Symbol(role) in ARRAY_ROLES)
             report!(v, "E02", spath, "`$(role)` is not a role of section 3")
-            v.missing_public = true
             role = nothing
         end
         role == "weight" && (nweight[loc] += 1)
@@ -1300,7 +1320,7 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
         check_source!(v, spath, obj, a)
         check_statistic!(v, spath, a)
         haskey(a, "varies") || (report!(v, "E39", spath,
-            "`varies` is missing"); v.missing_public = true)
+            "`varies` is missing"))
         # Section 5 names three values, for a slot a callable serves as
         # much as for one that holds data.
         vs = sattr(a, "varies")
@@ -1309,16 +1329,14 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
         # Section 14: a slot without `components` is E31, which E39
         # names as the rule that covers it.
         haskey(a, "components") || (report!(v, "E31", spath,
-            "`components` is missing"); v.missing_public = true)
+            "`components` is missing"))
         if role == "field" || role == "derived"
             if !haskey(a, "units")
                 rule = role == "field" ? "E11" : "E39"
                 report!(v, rule, spath, "a $(role) array requires `units`")
-                v.missing_public = true
             end
         elseif role == "coordinates" && !haskey(a, "units")
             report!(v, "E39", spath, "coordinates require `units`")
-            v.missing_public = true
         end
         haskey(a, "units") && a["units"].value isa AbstractString &&
             !parse_units(a["units"].value) &&
@@ -1327,7 +1345,6 @@ function check_support_arrays!(v::Validator, path, g, sname, sindex, kind,
            !(haskey(a, "derived_from") && haskey(a, "recipe"))
             report!(v, "E13", spath,
                     "a derived array needs `derived_from` and `recipe`")
-            v.missing_public = true
         end
         # Present and false is no more a mark than absent (W06).
         if role in ("weight", "normal") &&
@@ -1422,7 +1439,6 @@ function check_array_shape!(v::Validator, spath, d, a, role, loc, sname,
             report!(v, "E31", spath,
                     "`components` is $(a["components"].value) over a " *
                     "component dimension of $(comp)")
-            v.missing_public = true
         end
     end
     # the node or cell extent, found by the dimension's name
@@ -1525,7 +1541,7 @@ function check_callables!(v::Validator)
             a = own_attrs(g)
             check_attr_types!(v, path, a)
             haskey(a, "type") || (report!(v, "E15", path,
-                "no `type` attribute"); v.missing_public = true)
+                "no `type` attribute"))
             check_dict!(v, path, g, true, 0)
         end
     end
@@ -1835,7 +1851,10 @@ function check_unknown!(v::Validator)
     # /notes holds attributes, so nothing else walks its members; a
     # link among them is still a link in the public tree (E40).
     notes = vroot(v, "notes")
-    notes === nothing || vchildren!(v, notes, "/notes")
+    if notes !== nothing
+        vchildren!(v, notes, "/notes")
+        check_free_strings!(v, "/notes", own_attrs(notes))
+    end
     a = own_attrs(v.f)
     for name in keys(a)
         name in ROOT_ATTRS || report!(v, "W11", "/",
@@ -1860,10 +1879,13 @@ forbids a validator to interpret /private, so this is decided from the
 public objects it can see are missing and from nothing else."""
 function check_private!(v::Validator)
     hard_child(v.f, "private") === nothing && return v
-    v.missing_public || return v
-    report!(v, "E18", "/private",
-            "a required public attribute is missing while the file " *
-            "carries a /private group; public information may not live " *
-            "only there")
+    # Reported at each object the public thing is missing from, beside
+    # the rule that found it (section 14).
+    for path in unique([x.path for x in v.findings if x.rule in MISSING_PUBLIC])
+        report!(v, "E18", path,
+                "a required public attribute is missing here while the " *
+                "file carries a /private group; public information may " *
+                "not live only there")
+    end
     return v
 end

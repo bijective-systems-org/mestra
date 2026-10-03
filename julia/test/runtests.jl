@@ -162,6 +162,35 @@ end
     end
 end
 
+@testset "units grammar verdicts (section 32)" begin
+    # The strings the four implementations were compared on, and a few
+    # more that pin one reading each. Every implementation carries this
+    # list and must give these verdicts.
+    parses = ("1", "Pa", "m s-1", "W m-2", "m2 s-2", "kg m-3", "m/s",
+              "m s^-1", "m**2", "m.s-1", "m*s", "(m)", "((m))", "m (s)",
+              "%", "%%", "m%", "degree", "degree_C", "degC", "K", "km",
+              "mm", "um", "\u00b5m", "\u03bcm", "\u00b0", "\u00b0C", "rad",
+              "sr", "1e3 m", "10 m", "0.5 m", "-1", "m-1", "m+2", "m^2",
+              "m^-2", "m^+2", "s^0.5", "per s", "m per s",
+              "days since 2000-01-01",
+              "seconds since 1970-01-01T00:00:00Z",
+              "hours since 2000-01-01 00:00:00", "K @ 273.15",
+              "lg(re 1 mW)", "log(re 1)", "qux", "furlong", "m m", "m  s",
+              " m", "m ", "mol", "cd", "A", "N", "J", "W", "V", "Ohm",
+              "ohm", "S", "Hz", "dB", "count", "percent", "ppm", "1/s",
+              "kg.m.s-2", "m2.s-1",
+              # "m -1" is m times -1, "m-s" is m times s, "m2s" one name.
+              "m -1", "m-s", "m2s", "m^-2.5", "lg(re: 1 mW)", "log(m)")
+    for u in parses
+        @test Mestra.parse_units(u)
+    end
+    # "+" is a sign of a power and never an operator; the only space is
+    # U+0020.
+    for u in ("m per", "/s", "s/", "m//s", "m*/s", "m+s", "m\ts", "  ")
+        @test !Mestra.parse_units(u)
+    end
+end
+
 @testset "support_id worked examples (section 24)" begin
     @test Mestra.support_id(6; cell_types = UInt8[9, 9],
                             cell_offsets = Int64[0, 4, 8],
@@ -187,7 +216,6 @@ end
 @testset "corpus: support ids" begin
     for name in case_names()
         e = expected(name)
-        isempty(e.support_ids) && continue
         # the corpus carries files that break a structural rule on
         # purpose, and probing one is a non-strict read
         ds = Mestra.read(case_file(name); strict = false)
@@ -195,6 +223,13 @@ end
             i = Mestra.support_by_name(ds, String(sname))
             @test i !== nothing
             @test Mestra.support_id(ds.supports[i]) == String(want)
+        end
+        # A support the expectation leaves out has no digest (section
+        # 24), and asking for one is refused.
+        listed = Set(String.(keys(e.support_ids)))
+        for s in ds.supports
+            s.name in listed && continue
+            @test_throws Mestra.MestraError Mestra.support_id(s)
         end
     end
 end
@@ -1115,6 +1150,36 @@ end
     @test Mestra.validate(case_file("err_e39_kind")).errors == ["E39"]
 end
 
+@testset "E18 is reported at each object something is missing from (section 14)" begin
+    # It goes beside the rule that found the public thing missing, at
+    # that object; this reported it once, at /private.
+    at18(path) = sort([f.path for f in Mestra.validate(path).findings
+                       if f.rule == "E18"])
+    @test at18(case_file("err_e18")) == ["/"]
+    path = joinpath(SCRATCH, "e18_two_objects.mes")
+    cp(case_file("err_e18_role"), path; force = true)
+    chmod(path, 0o644)
+    HDF5.h5open(path, "r+") do f
+        HDF5.delete_attribute(f["keys/mach"], "units")
+    end
+    @test at18(path) == ["/keys/flow", "/keys/mach"]
+end
+
+@testset "a support without a kind it declares has no digest (section 24)" begin
+    # The declared kind decides which arrays are hashed; this hashed the
+    # node count alone for a support that declared none.
+    rule(f) = try
+        f()
+        "none"
+    catch e
+        e isa Mestra.MestraError ? e.rule : "not a MestraError"
+    end
+    no_kind = Mestra.read(case_file("err_e39_kind_mesh"); strict = false)
+    @test rule(() -> Mestra.support_id(no_kind.supports[1])) == "E39"
+    grid = Mestra.read(case_file("err_e02_kind"); strict = false)
+    @test rule(() -> Mestra.support_id(grid.supports[1])) == "E02"
+end
+
 @testset "a link anywhere in the public tree is E40 (sections 14 and 29)" begin
     # The validator met links only where it walked members for its own
     # reasons, which left out /notes and the group a callable slot is,
@@ -1701,6 +1766,18 @@ end
     end
     @test e isa Mestra.MestraError && e.rule == "E33"
     @test occursin("E33", sprint(showerror, e))
+    # Section 18: a name begins with a letter, a digit or an underscore.
+    # "." was legal, and HDF5 reads it as the group itself.
+    for name in (".", ".x", "-x", "+x")
+        refused = try
+            Mestra.add_key!(Mestra.Dataset(), name, [1.0]; role = :condition,
+                            units = "1")
+            nothing
+        catch err
+            err
+        end
+        @test refused isa Mestra.MestraError && refused.rule == "E33"
+    end
     ds2 = Mestra.Dataset()
     Mestra.add_key!(ds2, "m", [1.0, 2.0]; role = :condition, units = "1")
     @test_throws Mestra.MestraError Mestra.add_key!(ds2, "g", [0];

@@ -48,6 +48,45 @@ classdef PackageTest < matlab.unittest.TestCase
             end
         end
 
+        function unitsGrammarVerdicts(testCase)
+        %unitsGrammarVerdicts  Section 32 on a representative set.
+        %   The strings the four implementations were compared on, and
+        %   a few more that pin one reading each.  Every implementation
+        %   carries this list and must give these verdicts.
+            good = {'1', 'Pa', 'm s-1', 'W m-2', 'm2 s-2', 'kg m-3', ...
+                    'm/s', 'm s^-1', 'm**2', 'm.s-1', 'm*s', '(m)', ...
+                    '((m))', 'm (s)', '%', '%%', 'm%', 'degree', ...
+                    'degree_C', 'degC', 'K', 'km', 'mm', 'um', ...
+                    [char(181) 'm'], [char(956) 'm'], char(176), ...
+                    [char(176) 'C'], 'rad', 'sr', '1e3 m', '10 m', ...
+                    '0.5 m', '-1', 'm-1', 'm+2', 'm^2', 'm^-2', 'm^+2', ...
+                    's^0.5', 'per s', 'm per s', ...
+                    'days since 2000-01-01', ...
+                    'seconds since 1970-01-01T00:00:00Z', ...
+                    'hours since 2000-01-01 00:00:00', 'K @ 273.15', ...
+                    'lg(re 1 mW)', 'log(re 1)', 'qux', 'furlong', ...
+                    'm m', 'm  s', ' m', 'm ', 'mol', 'cd', 'A', 'N', ...
+                    'J', 'W', 'V', 'Ohm', 'ohm', 'S', 'Hz', 'dB', ...
+                    'count', 'percent', 'ppm', '1/s', 'kg.m.s-2', ...
+                    'm2.s-1', ...
+                    ... "m -1" is m times -1, "m-s" is m times s, and
+                    ... "m2s" is one name.
+                    'm -1', 'm-s', 'm2s', 'm^-2.5', 'lg(re: 1 mW)', ...
+                    'log(m)'};
+            for i = 1:numel(good)
+                testCase.verifyTrue(mestra.internal.Units.parses(good{i}), ...
+                    sprintf('section 32 accepts "%s"', good{i}));
+            end
+            % "+" is a sign of a power and never an operator; the only
+            % space is U+0020.
+            bad = {'m per', '/s', 's/', 'm//s', 'm*/s', 'm+s', ...
+                   ['m' char(9) 's'], '  '};
+            for i = 1:numel(bad)
+                testCase.verifyFalse(mestra.internal.Units.parses(bad{i}), ...
+                    sprintf('section 32 refuses "%s"', bad{i}));
+            end
+        end
+
         function recursiveRoutinesAreCapped(testCase)
         %recursiveRoutinesAreCapped  Nothing recurses on a file's say-so.
         %   The units parser is the one recursive routine that runs on
@@ -516,6 +555,73 @@ classdef PackageTest < matlab.unittest.TestCase
                     strjoin(variant{1}, ' '));
                 testCase.verifyError(@() mestra.read(path), 'mestra:E19');
             end
+        end
+
+        function e18IsReportedAtEachObject(testCase)
+        %e18IsReportedAtEachObject  Section 14: E18 goes beside the rule
+        %   that found the public thing missing, at that object.  This
+        %   reported it once, at /private.
+            r = mestra.validate(fullfile(corpusRoot(), 'err_e18', ...
+                                         'case.mes'));
+            at = {r.findings(strcmp({r.findings.id}, 'E18')).path};
+            testCase.verifyEqual(at, {'/'});
+            path = [tempname() '.mes'];
+            cleanup = onCleanup( ...
+                @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+            copyfile(fullfile(corpusRoot(), 'err_e18_role', 'case.mes'), ...
+                     path);
+            fileattrib(path, '+w');
+            fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+            did = H5D.open(fid, '/keys/mach');
+            H5A.delete(did, 'units');
+            H5D.close(did); H5F.close(fid);
+            r = mestra.validate(path);
+            at = sort({r.findings(strcmp({r.findings.id}, 'E18')).path});
+            testCase.verifyEqual(at, {'/keys/flow', '/keys/mach'});
+        end
+
+        function aSupportWithoutAKindItDeclaresHasNoDigest(testCase)
+        %aSupportWithoutAKindItDeclaresHasNoDigest  Section 24: the
+        %   declared kind decides which arrays are hashed, so a support
+        %   that declares none, or one section 6 does not have, has no
+        %   digest.  This hashed the node count alone for both.
+            cases = {'err_e39_kind_mesh', 'mestra:E39'; ...
+                     'err_e02_kind', 'mestra:E02'};
+            for i = 1:size(cases, 1)
+                file = fullfile(corpusRoot(), cases{i, 1}, 'case.mes');
+                fid = H5F.open(file, 'H5F_ACC_RDONLY', 'H5P_DEFAULT');
+                closer = onCleanup(@() H5F.close(fid));
+                map = mestra.internal.H5.scaleMap(fid);
+                g = H5G.open(fid, '/supports');
+                record = mestra.internal.Reader.readSupport(g, 's0', true, ...
+                                                            map);
+                H5G.close(g);
+                clear closer
+                testCase.verifyError(@() mestra.supportId(record), ...
+                                     cases{i, 2}, cases{i, 1});
+            end
+        end
+
+        function anEmptyUnitsStringIsW10(testCase)
+        %anEmptyUnitsStringIsW10  The empty string is text that does
+        %   not match section 32, so it draws W10, as it does in the
+        %   other three implementations.  This validator passed over it
+        %   as though the attribute were absent, and since the attribute
+        %   is present nothing else reported it either.
+            path = [tempname() '.mes'];
+            cleanup = onCleanup( ...
+                @() PackageTest.removeIfPresent(path)); %#ok<NASGU>
+            copyfile(fullfile(corpusRoot(), 'mesh_two_rows', 'case.mes'), ...
+                     path);
+            fileattrib(path, '+w');
+            fid = H5F.open(path, 'H5F_ACC_RDWR', 'H5P_DEFAULT');
+            did = H5D.open(fid, '/keys/mach');
+            H5A.delete(did, 'units');
+            mestra.internal.H5.writeStrAttr(did, 'units', '');
+            H5D.close(did); H5F.close(fid);
+            r = mestra.validate(path);
+            testCase.verifyEmpty(r.errors);
+            testCase.verifyEqual(r.warnings, {'W10'});
         end
 
         function aLinkAnywherePublicIsE40(testCase)

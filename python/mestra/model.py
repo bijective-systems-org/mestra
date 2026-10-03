@@ -52,6 +52,7 @@ __all__ = [
     "ARRAY_ROLES",
     "STATISTICS",
     "STATUS_WORDS",
+    "SUPPORT_KINDS",
     "FORMAT",
 ]
 
@@ -71,6 +72,18 @@ ARRAY_ROLES: dict[str, int | None] = {
 
 #: Section 9.
 STATISTICS = ("value", "mean", "band", "std", "quantile", "draw")
+
+#: Section 6.
+SUPPORT_KINDS = ("mesh", "axis", "none")
+
+_CALLABLE = "callable:"
+
+
+def is_callable_source(source: Any) -> bool:
+    """True when `source` is `callable:<id>` with an id after the colon
+    (section 19). "callable:" alone names no callable and is E36."""
+    return (isinstance(source, str) and source.startswith(_CALLABLE)
+            and len(source) > len(_CALLABLE))
 
 #: Section 19: which keys are stored as integers.
 _INTEGER_KEY_ROLES = ("categorical", "group", "split", "status")
@@ -455,7 +468,7 @@ class Slot:
     @property
     def is_callable(self) -> bool:
         """True when a callable serves this slot rather than data."""
-        return self.source.startswith("callable:")
+        return is_callable_source(self.source)
 
     @property
     def callable_id(self) -> str | None:
@@ -602,7 +615,8 @@ class _Arrays(dict):
 class Support:
     """The structure a field lives on: a mesh, an axis, or none.
 
-    It carries `kind`, `n_nodes`, `n_cells`, the three cell arrays,
+    It carries `kind` (None when a file it was read from did not say
+    it), `n_nodes`, `n_cells`, the three cell arrays,
     `support_id`, and the arrays on it: `coordinates`, which a
     support has exactly one of and is part of what the support is,
     and `node_arrays` and `cell_arrays`, which hold every other one.
@@ -611,7 +625,7 @@ class Support:
     `set_callable_coordinates`.
     """
 
-    def __init__(self, name: str, kind: str = "mesh", *,
+    def __init__(self, name: str, kind: str | None = "mesh", *,
                  n_nodes: int = 0, n_cells: int = 0,
                  cell_types: Any = None, cell_offsets: Any = None,
                  cell_connectivity: Any = None,
@@ -705,7 +719,22 @@ class Support:
         Coordinates of a mesh support are not hashed, because they
         may vary between rows while the support does not; the
         coordinates of an axis support are part of its identity.
+
+        The declared kind decides which arrays are hashed, so a
+        support that declares none, or one section 6 does not name,
+        has no digest and this refuses it (E39, E02).
         """
+        if self.kind is None:
+            raise MestraError(
+                "E39", "support %s does not say its kind, and the kind "
+                "decides which of its arrays section 24 hashes, so it has "
+                "no support_id" % self.name, self.name)
+        if self.kind not in SUPPORT_KINDS:
+            raise MestraError(
+                "E02", "support %s is of kind %r, which section 6 does not "
+                "have, so section 24 says nothing about which of its "
+                "arrays to hash and it has no support_id"
+                % (self.name, self.kind), self.name)
         axis_coordinates = None
         if (self.kind == "axis" and self.coordinates is not None
                 and self.coordinates.data is not None):
@@ -1481,9 +1510,9 @@ class Dataset:
                 kind = "axis"
             else:
                 kind = "none"
-        if kind not in ("mesh", "axis", "none"):
+        if kind not in SUPPORT_KINDS:
             raise MestraError(
-                "E03", "a support is mesh, axis or none; pass kind= one "
+                "E02", "a support is mesh, axis or none; pass kind= one "
                 "of those, not %r" % kind, name)
         if coords is not None and not units:
             raise MestraError(
@@ -1730,7 +1759,8 @@ def _check_name(name: str) -> None:
     if not is_legal_name(name):
         raise MestraError(
             "E33", "%r is not a legal netCDF-4 name: letters, digits, "
-            "underscore, hyphen, . and + only" % name, name)
+            "underscore, hyphen, . and + only, beginning with a letter, a "
+            "digit or an underscore" % name, name)
     if is_reserved(name):
         raise MestraError(
             "E33", "names beginning with mestra_ are reserved for the "

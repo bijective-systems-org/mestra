@@ -526,6 +526,14 @@ classdef ConventionsTest < matlab.unittest.TestCase
                 @() d.addScalar('mestra_cd', [1 2], '1'), 'mestra:E33');
             ConventionsTest.errorFrom(testCase, ...
                 @() d.addCategoryTable('a b', {'x'}), 'mestra:E33');
+            % Section 18: a name begins with a letter, a digit or an
+            % underscore.  "." was legal, and HDF5 reads it as the
+            % group itself.
+            for name = {'.', '.x', '-x', '+x'}
+                ConventionsTest.errorFrom(testCase, ...
+                    @() d.addKey(name{1}, [1 2], 'condition', '1'), ...
+                    'mestra:E33');
+            end
         end
 
         function everythingTheBuilderMakesValidatesClean(testCase)

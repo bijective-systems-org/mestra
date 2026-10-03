@@ -1,19 +1,19 @@
-"""A small parser for the UDUNITS-style grammar the spec names.
+"""Units strings: the grammar W10 is decided by, and their dimensions.
 
-SPEC.md section 3 says units are strings in the UDUNITS grammar that
-CF uses ("Pa", "m s-1", "W m-2", "1" for dimensionless), and that in
-version 0 a string the validator cannot parse is a warning (W10) and
-not an error.
+SPEC.md section 32 gives the grammar. A units string parses when it
+matches it, whatever names it uses: "furlong fortnight-1" parses and
+"m//s" does not. That verdict is `is_parseable`, and it is all the
+validator asks (W10). It needs no unit database.
 
-This parser is deliberately small. It reads products, quotients,
-powers written as a trailing integer or after "^" or "**",
-parenthesised groups, decimal factors, and names built from a base
-unit list with the SI prefixes. It decides one question - does this
-string parse - and reports the dimensions it found, so that a tool
-can also refuse to combine two quantities whose dimensions differ.
-It does not convert between units and it knows nothing about
-offsets, calendars or the many spellings UDUNITS itself accepts.
+`parse` goes further for a tool that wants to compare two quantities.
+It reduces a string to the dimensions of the seven SI base units,
+using a table of the names CF files use with the SI prefixes, and
+refuses a string whose names are not in that table or that carries a
+shift, so that a tool never combines two quantities it could not
+check (section 3).
 
+    >>> is_parseable("days since 2000-01-01")
+    True
     >>> parse("W m-2").dimensions
     {'kg': 1, 's': -3}
     >>> parse("kg/(m s") is None
@@ -288,36 +288,310 @@ class _Parser:
         raise _ParseError("unexpected %r" % token.text)
 
 
-def parse(text: str) -> Unit | None:
-    """Parse a units string, or return None when it does not parse.
+# ------------------------------------------------------------ the grammar
 
-    A None result is what the validator reports as W10.
+#: The words that are operators after a power and names anywhere else.
+_SHIFT_WORDS = ("since", "from", "after", "ref")
+_LOG_NAMES = ("log", "lg", "ln", "lb")
+
+
+def _letter(c: str) -> bool:
+    """A character a name is made of, besides the digits: an ASCII
+    letter, one of _ % ' ", or any character outside ASCII."""
+    return len(c) == 1 and (("A" <= c <= "Z") or ("a" <= c <= "z")
+                            or c in "_%'\"" or ord(c) > 127)
+
+
+def _digit(c: str) -> bool:
+    return len(c) == 1 and "0" <= c <= "9"
+
+
+class _Grammar:
+    """Section 32 read literally: one recursive descent, which says
+    whether a string matches and nothing else. Every method returns
+    True and moves past what it matched, or returns False and leaves
+    the position to its caller to restore."""
+
+    def __init__(self, text: str) -> None:
+        self.s = text
+        self.at = 0
+
+    def char(self, offset: int = 0) -> str:
+        at = self.at + offset
+        return self.s[at] if at < len(self.s) else ""
+
+    def spaces(self) -> int:
+        start = self.at
+        while self.char() == " ":
+            self.at += 1
+        return self.at - start
+
+    def digits(self, most: int | None = None) -> int:
+        start = self.at
+        while _digit(self.char()) and (most is None
+                                       or self.at - start < most):
+            self.at += 1
+        return self.at - start
+
+    def word(self, word: str) -> bool:
+        """`word` here as a whole word: not run on into a name."""
+        end = self.at + len(word)
+        if self.s[self.at:end] != word:
+            return False
+        after = self.s[end] if end < len(self.s) else ""
+        return not (after and (_letter(after) or _digit(after)))
+
+    def units(self, depth: int) -> bool:
+        self.spaces()
+        if not self.product(depth):
+            return False
+        save = self.at
+        if not self.shift():
+            self.at = save
+        self.spaces()
+        return True
+
+    def product(self, depth: int) -> bool:
+        if not self.power(depth):
+            return False
+        while True:
+            save = self.at
+            self.spaces()
+            c = self.char()
+            if c == "" or c == ")" or c == "@" or any(
+                    self.word(w) for w in _SHIFT_WORDS):
+                self.at = save
+                return True
+            if c in "*./-":
+                self.at += 1
+            elif self.word("per"):
+                self.at += 3
+            else:
+                # Juxtaposition: a space, or nothing at all, between
+                # two powers is a product.
+                if self.power(depth):
+                    continue
+                self.at = save
+                return True
+            self.spaces()
+            if not self.power(depth):
+                return False
+
+    def power(self, depth: int) -> bool:
+        if not self.basic(depth):
+            return False
+        c = self.char()
+        if _digit(c) or (c in ("+", "-") and _digit(self.char(1))):
+            self.at += 1
+            self.digits()
+        elif c == "^" or self.s.startswith("**", self.at):
+            self.at += 1 if c == "^" else 2
+            return self.number()
+        return True
+
+    def basic(self, depth: int) -> bool:
+        c = self.char()
+        if c == "(":
+            return self.group(depth)
+        if _letter(c):
+            start = self.at
+            self.name()
+            if self.s[start:self.at] in _LOG_NAMES and self.char() == "(":
+                save = self.at
+                if self.reference():
+                    return self.logref(depth)
+                self.at = save
+            return True
+        return self.number()
+
+    def name(self) -> bool:
+        if not _letter(self.char()):
+            return False
+        while _letter(self.char()) or _digit(self.char()):
+            self.at += 1
+        # The trailing digits of a name are its power: "m2" is m
+        # squared, and "m2s" is one name.
+        while _digit(self.s[self.at - 1]):
+            self.at -= 1
+        return True
+
+    def group(self, depth: int) -> bool:
+        if depth >= limits.MAX_UNITS_DEPTH:
+            return False
+        self.at += 1
+        if not self.units(depth + 1) or self.char() != ")":
+            return False
+        self.at += 1
+        return True
+
+    def reference(self) -> bool:
+        """The opening of a logarithmic reference, "(re " or "(re:",
+        after a name of a logarithm. When it is there the "(" belongs
+        to the reference; when it is not, the "(" opens a group."""
+        self.at += 1
+        self.spaces()
+        if self.s[self.at:self.at + 2] != "re":
+            return False
+        self.at += 2
+        if self.char() == ":":
+            self.at += 1
+            self.spaces()
+            return True
+        return self.spaces() > 0
+
+    def logref(self, depth: int) -> bool:
+        """The rest of "lg(re 1 mW)": a product and its ")"."""
+        if depth >= limits.MAX_UNITS_DEPTH:
+            return False
+        if not self.product(depth + 1):
+            return False
+        self.spaces()
+        if self.char() != ")":
+            return False
+        self.at += 1
+        return True
+
+    def shift(self) -> bool:
+        self.spaces()
+        if self.char() == "@":
+            self.at += 1
+        else:
+            for w in _SHIFT_WORDS:
+                if self.word(w):
+                    self.at += len(w)
+                    break
+            else:
+                return False
+        self.spaces()
+        save = self.at
+        if self.timestamp():
+            return True
+        self.at = save
+        return self.number()
+
+    def sign(self) -> None:
+        if self.char() in ("+", "-"):
+            self.at += 1
+
+    def number(self) -> bool:
+        self.sign()
+        whole = self.digits()
+        fraction = 0
+        if self.char() == ".":
+            self.at += 1
+            fraction = self.digits()
+            if not whole and not fraction:
+                return False
+        elif not whole:
+            return False
+        if self.char() in ("e", "E"):
+            save = self.at
+            self.at += 1
+            self.sign()
+            if not self.digits():
+                self.at = save
+        return True
+
+    def timestamp(self) -> bool:
+        if not self.date():
+            return False
+        save = self.at
+        if self.char() == "T":
+            self.at += 1
+        elif not self.spaces():
+            return True
+        if not self.clock():
+            self.at = save
+            return True
+        save = self.at
+        self.spaces()
+        if not self.zone():
+            self.at = save
+        return True
+
+    def date(self) -> bool:
+        self.sign()
+        if not self.digits() or self.char() != "-":
+            return False
+        self.at += 1
+        if not self.digits(2):
+            return False
+        if self.char() == "-" and _digit(self.char(1)):
+            self.at += 1
+            self.digits(2)
+        return True
+
+    def clock(self) -> bool:
+        if not self.digits(2) or self.char() != ":":
+            return False
+        self.at += 1
+        if self.digits(2) != 2:
+            return False
+        if self.char() == ":" and _digit(self.char(1)):
+            self.at += 1
+            if self.digits(2) != 2:
+                return False
+            if self.char() == ".":
+                self.at += 1
+                self.digits()
+        return True
+
+    def zone(self) -> bool:
+        if self.char() in ("+", "-"):
+            self.at += 1
+            if not self.digits(2):
+                return False
+            save = self.at
+            if self.char() == ":":
+                self.at += 1
+            if self.digits(2) != 2:
+                self.at = save
+            return True
+        return self.name()
+
+
+def is_parseable(text: str) -> bool:
+    """True when `text` matches the units grammar of section 32.
+
+    This is the W10 verdict. It looks at the shape of the string and
+    never at its names, so a unit this module has never heard of
+    parses as long as it is written the way a unit is written.
     """
-    if text is None:
-        return None
-    if len(text) > limits.MAX_UNITS_LENGTH:
-        return None
-    stripped = text.strip()
-    if not stripped:
+    if not isinstance(text, str):
+        return False
+    try:
+        if len(text.encode("utf-8")) > limits.MAX_UNITS_LENGTH:
+            return False
+    except UnicodeEncodeError:
+        return False
+    grammar = _Grammar(text)
+    return grammar.units(0) and grammar.at == len(text)
+
+
+def parse(text: str) -> Unit | None:
+    """The dimensions of a units string, or None when there are none
+    this module can give.
+
+    None when the string is outside the grammar (W10), and also when
+    it is grammatical but names a unit outside this module's table or
+    carries a shift: such a string is valid, and a tool still must
+    not combine it with anything.
+    """
+    if not is_parseable(text):
         return None
     try:
-        return Unit(text, _Parser(stripped).parse())
+        return Unit(text, _Parser(text.strip()).parse())
     except _ParseError:
         return None
     except RecursionError:                          # pragma: no cover
         return None
 
 
-def is_parseable(text: str) -> bool:
-    """True when `text` is a units string this parser understands."""
-    return parse(text) is not None
-
-
 def same_dimensions(left: str, right: str) -> bool:
     """True when both parse and their dimensions agree.
 
-    Tools must refuse to combine unparseable units, so an
-    unparseable string is never the same as anything.
+    Tools must refuse to combine unparseable units, so a string
+    `parse` gives no dimensions for is never the same as anything.
     """
     a, b = parse(left), parse(right)
     if a is None or b is None:

@@ -1,0 +1,1 @@
+{"codec":{},"description":"A categorical key whose category names a table the file does not have. There is no table for a value to be outside, so it is not E10.","evaluation":[],"probes":[],"support_ids":{"s0":"96df395d80ef548444562292de441525ba0b5c8ad00a8dadff19a19c943936c7"},"validator":{"errors":["E39"],"warnings":[]}}

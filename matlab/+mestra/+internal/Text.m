@@ -8,11 +8,13 @@ classdef Text
         function tf = legalName(name)
         %legalName  True when a name is a legal netCDF-4 name.
         %   Section 18: not empty, no "/" and no NUL, not beginning or
-        %   ending with a space, and built from letters, digits,
-        %   underscore, hyphen, "." and "+".
+        %   ending with a space, built from letters, digits,
+        %   underscore, hyphen, "." and "+", and beginning with a
+        %   letter, a digit or an underscore.
             tf = false;
             if isempty(name), return, end
             if name(1) == ' ' || name(end) == ' ', return, end
+            if any(name(1) == '-.+'), return, end
             for i = 1:numel(name)
                 c = name(i);
                 ok = isletter(c) || any(c == '0123456789_-.+') || ...

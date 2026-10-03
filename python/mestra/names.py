@@ -28,15 +28,15 @@ MACHINERY = frozenset([
 #: Reserved for the container everywhere in the file (section 18).
 RESERVED_PREFIX = "mestra_"
 
-_LEGAL = re.compile(r"^[A-Za-z0-9_.+-]+$")
+_LEGAL = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.+-]*$")
 
 
 def is_legal_name(name: str) -> bool:
     """True when `name` is a legal netCDF-4 name (section 18).
 
     Not empty, no "/" and no NUL, not beginning or ending with a
-    space, and built from letters, digits, underscore, hyphen, "."
-    and "+".
+    space, built from letters, digits, underscore, hyphen, "." and
+    "+", and beginning with a letter, a digit or an underscore.
     """
     if not name:
         return False

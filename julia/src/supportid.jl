@@ -42,8 +42,18 @@ The digest computed from what the support actually stores.  An `axis`
 support hashes its coordinates; section 24 says to hash the stored
 bytes as they are even when those coordinates wrongly vary, so that
 such a file breaks E35 and nothing else.
+
+The declared kind decides which arrays are hashed, so a support that
+declares none (E39), or one section 6 does not have (E02), has no
+digest and this throws.
 """
 function support_id(s::Support)
+    isempty(s.kind) && throw(MestraError("E39",
+        "support $(s.name) does not say its kind, and the kind decides " *
+        "which of its arrays section 24 hashes, so it has no support_id"))
+    s.kind in ("mesh", "axis", "none") || throw(MestraError("E02",
+        "support $(s.name) is of kind \"$(s.kind)\", which section 6 " *
+        "does not have, so it has no support_id"))
     # A support whose arrays the reader refused or could not read has
     # no digest: computing one over what is missing would answer a
     # question the file did not.

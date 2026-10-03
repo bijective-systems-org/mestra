@@ -303,6 +303,28 @@ def run_case(tool, directory, name, totals, problems):
             fail("support_id of " + support, got, digest)
         else:
             totals["support_id_ok"] += 1
+    # A support the expectation leaves out has no digest (section 24),
+    # and the tool must refuse to give one. Listing the supports needs
+    # h5py, as the read-write comparison does.
+    if h5py is not None:
+        with h5py.File(mes, "r") as f:
+            groups = f.get("supports")
+            present = sorted(
+                name for name in groups
+                if isinstance(groups.get(name, getlink=True), h5py.HardLink)
+                and isinstance(groups[name], h5py.Group)) \
+                if isinstance(groups, h5py.Group) else []
+        for support in present:
+            if support in expected["support_ids"]:
+                continue
+            totals["support_id"] += 1
+            done = subprocess.run([tool.path, "support-id", mes, support],
+                                  capture_output=True, text=True)
+            if done.returncode == 0:
+                fail("support_id of " + support, done.stdout.strip(),
+                     "a refusal: the support has no digest")
+            else:
+                totals["support_id_ok"] += 1
 
     # --- probes -------------------------------------------------------
     for probe in expected["probes"]:

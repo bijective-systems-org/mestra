@@ -11,6 +11,10 @@ namespace internal {
 bool legal_netcdf_name(const std::string& name) {
   if (name.empty()) return false;
   if (name.front() == ' ' || name.back() == ' ') return false;
+  // Section 18: the first character is a letter, a digit or an
+  // underscore, as netCDF-C requires.
+  const unsigned char first = static_cast<unsigned char>(name.front());
+  if (!std::isalnum(first) && first != '_') return false;
   for (const char raw : name) {
     const unsigned char c = static_cast<unsigned char>(raw);
     if (c == '\0' || c == '/') return false;
@@ -138,7 +142,11 @@ std::string group_of_varies(const std::string& varies) {
 }
 
 std::string callable_of_source(const std::string& source) {
-  if (source.compare(0, 9, "callable:") == 0) return source.substr(9);
+  // "callable:" alone names no callable: it is E36, like any other
+  // source that is neither word (section 19).
+  if (source.size() > 9 && source.compare(0, 9, "callable:") == 0) {
+    return source.substr(9);
+  }
   return std::string();
 }
 

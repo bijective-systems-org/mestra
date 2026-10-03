@@ -193,3 +193,21 @@ def test_a_wrong_node_count_is_reported_at_the_offsets():
     report = mestra.validate(corpus.case_path("err_e22"))
     assert [(f.rule, f.where) for f in report.errors] == [
         ("E22", "/supports/s0/cell_offsets")]
+
+
+def test_e18_is_reported_at_each_object_something_is_missing_from(tmp_path):
+    """Section 14: E18 goes beside the rule that found the public thing
+    missing, at that object, and not at /private, where this reported
+    it once whatever was missing and wherever."""
+    import shutil
+
+    import h5py
+    report = mestra.validate(corpus.case_path("err_e18"))
+    assert [f.where for f in report.findings if f.rule == "E18"] == ["/"]
+    path = str(tmp_path / "two_objects.mes")
+    shutil.copy(corpus.case_path("err_e18_role"), path)
+    with h5py.File(path, "r+") as f:
+        del f["/keys/mach"].attrs["units"]
+    report = mestra.validate(path)
+    assert sorted(f.where for f in report.findings if f.rule == "E18") == [
+        "/keys/flow", "/keys/mach"]

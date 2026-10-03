@@ -19,9 +19,9 @@ function out = validate(path)
 %   nothing else: section 28 says a reader must refuse it outright and
 %   must not try to read it partially.
 %
-%   W10 uses a small units parser (mestra.internal.Units) that checks
-%   the UDUNITS grammar and not the names, because shipping a unit
-%   database is not what the rule asks for.
+%   W10 is decided by the units grammar of section 32
+%   (mestra.internal.Units), which looks at the shape of a string and
+%   never at its names, so no unit database is involved.
 %
 %   A file is untrusted input, so the pass is per object: an object
 %   that will not open or will not read stops that object and nothing
@@ -514,18 +514,17 @@ function role = checkOneKey(ctx, g, name, path)
         rep.add('E02', path, 'the role is "%s"', role);
     end
 
-    units = strAttr(did, 'units');
     if ismember(role, {'design', 'condition', 'time'})
         if ~H5.hasAttr(did, 'units')
             rep.add('E39', path, 'a %s key needs units', role);
         end
     end
-    if ~isempty(units) && ~mestra.internal.Units.parses(units)
-        rep.add('W10', path, 'the units "%s" do not parse', units);
-    end
+    checkUnits(rep, did, path);
     if ismember(role, {'categorical', 'group', 'split', 'status'})
         if ~H5.hasAttr(did, 'category')
             rep.add('E39', path, 'a %s key needs a category table', role);
+        else
+            checkTableExists(ctx, did, path);
         end
     end
     if strcmp(role, 'time') && ~isempty(ctx.groupKeys) && ...
@@ -582,16 +581,19 @@ function checkKeyValues(ctx, did, path, role, values)
     rep = ctx.rep;
     if isempty(values), return, end
     if ismember(role, {'categorical', 'group', 'split', 'status'})
-        if ismember(strAttr(did, 'category'), ctx.unreadTables), return, end
-        table = categoryEntries(ctx, strAttr(did, 'category'));
-        if ~isempty(table) || H5.hasAttr(did, 'category')
-            n = numel(table);
-            bad = values(values < 0 | values >= n);
-            if ~isempty(bad)
-                rep.add('E10', path, ...
-                    'the value %g is outside a table of %d entries', ...
-                    double(bad(1)), n);
-            end
+        name = strAttr(did, 'category');
+        % A table that is not there is E39 (checkTableExists), and one
+        % that would not read is not held against an empty stand-in.
+        if ~ctx.categories.isKey(name) || ismember(name, ctx.unreadTables)
+            return
+        end
+        table = categoryEntries(ctx, name);
+        n = numel(table);
+        bad = values(values < 0 | values >= n);
+        if ~isempty(bad)
+            rep.add('E10', path, ...
+                'the value %g is outside a table of %d entries', ...
+                double(bad(1)), n);
         end
         return
     end
@@ -768,11 +770,7 @@ function checkOneScalar(ctx, g, name, path)
     if ~H5.hasAttr(oid, 'units')
         ctx.rep.add('E11', path, 'a scalar needs units');
     else
-        units = strAttr(oid, 'units');
-        if ~isempty(units) && ~mestra.internal.Units.parses(units)
-            ctx.rep.add('W10', path, ...
-                'the units "%s" do not parse', units);
-        end
+        checkUnits(ctx.rep, oid, path);
     end
     checkSource(ctx, oid, path, isGroup);
     checkStatistic(ctx, oid, path);
@@ -905,6 +903,12 @@ function checkOneSupport(ctx, parent, name, index)
         end
     end
     kind = strAttr(sid, 'kind');
+    [given, ok] = H5.scalarAttr(sid, 'kind');
+    if ok && ischar(given) && ...
+       ~any(strcmp(given, {'mesh', 'axis', 'none'}))
+        rep.add('E02', path, ...
+            '"%s" is not a kind of support of section 6', given);
+    end
     nNodes = numAttr(sid, 'n_nodes');
     nCells = numAttr(sid, 'n_cells');
     if isempty(nNodes), nNodes = 0; end
@@ -1173,7 +1177,6 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
 
     role = strAttr(oid, 'role');
     varies = strAttr(oid, 'varies');
-    units = strAttr(oid, 'units');
     if isempty(role) || ~ismember(role, arrayRoles())
         rep.add('E02', path, 'the role is "%s"', role);
     end
@@ -1189,9 +1192,7 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
            ~H5.hasAttr(oid, 'units')
         rep.add('E39', path, 'a %s array needs units', role);
     end
-    if ~isempty(units) && ~mestra.internal.Units.parses(units)
-        rep.add('W10', path, 'the units "%s" do not parse', units);
-    end
+    checkUnits(rep, oid, path);
     if strcmp(role, 'derived') && ...
        (~H5.hasAttr(oid, 'derived_from') || ~H5.hasAttr(oid, 'recipe'))
         rep.add('E13', path, ...
@@ -1328,8 +1329,12 @@ function checkSlot(ctx, parent, name, path, location, nNodes, nCells, ...
 end
 
 function checkLabelValues(ctx, oid, info, path)
+    if ~mestra.internal.H5.hasAttr(oid, 'category')
+        return          % a label without a table is its own categories
+    end
+    if ~checkTableExists(ctx, oid, path), return, end
     name = strAttr(oid, 'category');
-    if isempty(name) || ismember(name, ctx.unreadTables), return, end
+    if ismember(name, ctx.unreadTables), return, end
     table = categoryEntries(ctx, name);
     try
         values = double(mestra.internal.H5.readData(oid, info));
@@ -1489,7 +1494,19 @@ function checkStatistic(ctx, oid, path)
 %   on a slot a callable serves, one a callable produces (section 10).
     H5 = mestra.internal.H5;
     if ~H5.hasAttr(oid, 'statistic'), return, end
-    statistic = strAttr(oid, 'statistic');
+    % A statistic that is not text is E19 and names nothing to check.
+    [statistic, ok] = H5.scalarAttr(oid, 'statistic');
+    if ~ok || ~ischar(statistic) || (~isempty(statistic) && ~isrow(statistic))
+        return
+    end
+    % A word section 9 does not name is E02.  What a statistic needs
+    % follows from its word, so E12 has nothing to decide for it.
+    if ~any(strcmp(statistic, ...
+            {'value', 'mean', 'band', 'std', 'quantile', 'draw'}))
+        ctx.rep.add('E02', path, ...
+            '"%s" is not a statistic of section 9', statistic);
+        return
+    end
     served = false;
     if H5.hasAttr(oid, 'source')
         source = strAttr(oid, 'source');
@@ -1806,6 +1823,10 @@ function checkUnknown(ctx)
     if strcmp(H5.childType(ctx.root, 'notes'), 'group')
         notes = H5G.open(ctx.root, 'notes');
         linksIn(ctx, notes, '/notes');
+        found = mestra.internal.Attrs.freeFindings(notes);
+        for i = 1:numel(found)
+            ctx.rep.add(found(i).id, '/notes', '%s', found(i).message);
+        end
         % /notes is public: a dataset there is held to the byte-level
         % rules as any public dataset is.
         for name = H5.children(notes)
@@ -1837,21 +1858,54 @@ function checkPrivate(ctx)
 %checkPrivate  E18, decided from what a reader can see.
 %   A required public attribute or object absent, by any of E02, E11,
 %   E13, E15, E17, E31 or E39, in a file that also carries a
-%   `/private` group.  It is reported beside that rule and never by
-%   interpreting `/private`, which section 29 forbids.
+%   `/private` group.  It is reported beside that rule, at each object
+%   the public thing is missing from, and never by interpreting
+%   `/private`, which section 29 forbids.
     if ~mestra.internal.H5.exists(ctx.fid, '/private'), return, end
     triggers = {'E02', 'E11', 'E13', 'E15', 'E17', 'E31', 'E39'};
-    for i = 1:numel(triggers)
-        if ctx.rep.has(triggers{i})
-            ctx.rep.add('E18', '/private', ...
-                ['%s found a required public thing missing in a file ' ...
-                 'that also carries a private group'], triggers{i});
-            return
-        end
+    found = ctx.rep.findings;
+    found = found(ismember({found.id}, triggers));
+    places = unique({found.path}, 'stable');
+    for i = 1:numel(places)
+        rules = unique({found(strcmp({found.path}, places{i})).id});
+        ctx.rep.add('E18', places{i}, ...
+            ['%s found a required public thing missing here in a file ' ...
+             'that also carries a private group'], strjoin(rules, ', '));
     end
 end
 
 % ========================================================== fetching
+
+function tf = checkTableExists(ctx, oid, path)
+%checkTableExists  E39: a category attribute naming no table.
+%   The attribute is there and refers to nothing, so the values it was
+%   to be checked against cannot be checked at all.  That is E39 and
+%   not E10, and it does not depend on there being any rows.  A
+%   category that is not text is E19 and names nothing to look for.
+    [name, ok] = mestra.internal.H5.scalarAttr(oid, 'category');
+    if ~ok || ~ischar(name) || (~isempty(name) && ~isrow(name))
+        tf = false;
+        return
+    end
+    tf = ctx.categories.isKey(name);
+    if ~tf
+        ctx.rep.add('E39', path, ...
+            'the category table "%s" is not under /categories', name);
+    end
+end
+
+function checkUnits(rep, oid, path)
+%checkUnits  W10: units text that does not match section 32.
+%   The empty string is text and does not match, so it draws W10 like
+%   any other.  A units attribute that is not a string at all is E19,
+%   drawn by checkAttrEncodings, and is not also text that does not
+%   parse.
+    [value, ok] = mestra.internal.H5.scalarAttr(oid, 'units');
+    if ok && ischar(value) && (isempty(value) || isrow(value)) && ...
+       ~mestra.internal.Units.parses(value)
+        rep.add('W10', path, 'the units "%s" do not parse', value);
+    end
+end
 
 function v = strAttr(oid, name)
     v = mestra.internal.Reader.str(oid, name);

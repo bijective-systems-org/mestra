@@ -121,9 +121,13 @@ Array roles (per support):
 Scalars carry the role `scalar` implicitly and require units.
 
 Units are strings in the UDUNITS grammar that CF uses ("Pa", "m s-1",
-"W m-2", "1" for dimensionless). In version 0 a string the validator
-cannot parse is a warning, not an error; tools may convert between
-parseable units and must refuse to combine unparseable ones.
+"W m-2", "1" for dimensionless). A units string parses when it matches
+the grammar of section 32 (products by a space, ".", "*" or "-"; "/"
+and "per" after a factor; "^", "**" or a trailing integer for powers;
+shifts by "@", "since", "from", "after" and "ref"; log references),
+whatever names it uses. In version 0 a string that does not parse is a
+warning, not an error; tools may convert between units they know and
+must refuse to combine units they do not.
 
 
 4. Dimensions and axis order
@@ -405,7 +409,11 @@ A file carries the minimum a reader needs to open it, and no more:
 
 An optional `notes` group may hold free-form attributes (a solver
 name, a dataset licence, a comment). Nothing in the format depends on
-them and no tool may require them.
+them and no tool may require them. They are public, so section 18
+holds for them as for any attribute: a string among them is a
+fixed-length UTF-8 string padded with NUL (E19) holding legal text
+(E26), and never a variable-length one. A number among them is the
+producer's choice, because the format names no number there.
 
 Lineage, history, upstream links, validation records, sign-off, and
 evaluation parameters are deliberately not part of the format. They
@@ -522,7 +530,12 @@ Errors (the file is rejected):
 
   E01  `format` missing or not "mestra/<n>" with n this reader
        accepts
-  E02  a key or array without a role, or with a role not in section 3
+  E02  a key or array without a role, or with a role not in section 3;
+       a support whose `kind` is not one of the three words of section
+       6; a slot whose `statistic` is not one of the six words of
+       section 9. What a statistic needs follows from its word, so a
+       slot with a word section 9 does not name is not also judged by
+       E12
   E03  a role's cardinality violated (two time keys; no coordinates
        on a mesh or axis support; two coordinates arrays on one
        support; two units of generalisation)
@@ -564,9 +577,10 @@ Errors (the file is rejected):
   E17  `format`, `writer`, or `created` missing
   E18  a required public attribute or object absent, by any of E02,
        E11, E13, E15, E17, E31 or E39, in a file that also carries a
-       `/private` group. It is reported beside that rule and never by
-       interpreting `/private`, which section 29 forbids a reader to
-       interpret. A writer that moved the public thing into the
+       `/private` group. It is reported beside that rule, at the path
+       of each object that rule found something missing from, and
+       never by interpreting `/private`, which section 29 forbids a
+       reader to interpret. A writer that moved the public thing into the
        private part is what the rule is about; a reader can only see
        the two facts that make it likely, and says so
 
@@ -599,7 +613,13 @@ rule.
        against `varies` is E04, the node or cell count is E05, and
        the component count is E31. A dimension scale dataset is not
        itself subject to this rule and carries no scale on its own
-       axis
+       axis. Once an axis of a dataset draws E25, a reader does not
+       know that dataset's dimensions, and whether it goes on to
+       report there the rules decided from them (E04, E05, E16, E27,
+       E31, E34, E43 and W12) is implementation-defined. The corpus
+       does not compare them: no corpus file has a dataset that draws
+       E25 and would draw one of those. A rule decided without the
+       dimensions, such as the dtype of E20, is reported as usual
   E26  a fixed-length string that is not valid UTF-8, or that holds a
        NUL byte anywhere but in its trailing padding
   E27  `row` not an unlimited dimension, or a row-dimensioned dataset
@@ -621,7 +641,10 @@ rule.
   E34  a group-varying array whose leading dimension length differs
        from the number of categories of its group key
   E35  an `axis` support whose coordinates do not have `varies = none`
-  E36  a `source` that is neither `data` nor `callable:<id>`
+  E36  a `source` that is neither `data` nor `callable:<id>`, which
+       includes `callable:` with an empty id. Such a slot says neither
+       that it holds data nor which callable serves it, so E14, E30
+       and the `output` of E39 are not decided for it
   E37  `aligned` disagreeing with the number of supports declared:
        true with more than one, or false with at most one
   E38  a mesh support missing `cell_types`, `cell_offsets` or
@@ -635,7 +658,11 @@ rule.
        `format`, `writer` and `created`, E31 `components`, and W06
        `recomputed`. This rule is what covers units on a key of role
        `design`, `condition` or `time`, units on coordinates and
-       units on a derived array
+       units on a derived array. It also covers a `category`, on a
+       key or on a label, that names no table under `/categories`:
+       the attribute refers to nothing, so the values cannot be held
+       against a table at all, which is not E10, and the finding does
+       not depend on the file having rows
   E40  a link in the public tree that is not a hard link: a soft
        link, whether it resolves, dangles or loops, or an external
        link. A reader never follows one (section 29)
@@ -676,7 +703,7 @@ Warnings (the file is accepted; the reader must report):
        with no finite value at all
   W09  retired. A categorical key stored as floating point is an
        error by the dtype table of section 19 (E20)
-  W10  a units string the validator cannot parse
+  W10  a units string that does not match the grammar of section 32
   W11  an attribute or a group this reader does not know, ignored
        under section 28
   W12  a chunk shape that is not the default of section 23, on a
@@ -751,6 +778,10 @@ Roles and rules:
 
   - Units are strings in the UDUNITS grammar; a string the validator
     cannot parse is a warning in version 0 and not an error (section 3).
+  - Whether a units string parses is decided by a grammar and never by
+    a list of names, because no two unit databases agree on a list: the
+    four implementations once took 77 strings four ways (sections 3
+    and 32).
   - `split` is a key role, and `status` is a key role with an open
     category table. A label's category table is optional (section 3).
   - Bounds live on the key columns. There is no separate domain group, so
@@ -791,6 +822,36 @@ Roles and rules:
     `/private`; it was not decidable before. E39 was added for a required
     attribute of section 19 that is simply absent, which nothing covered
     (section 14).
+  - A name begins with a letter, a digit or an underscore, as netCDF-C
+    requires. Without that, "." was a legal name that HDF5 reads as the
+    group itself, and a key named that way could be built in every
+    language and written in none (section 18).
+  - `callable:` with nothing after it is E36 alone. It names no callable,
+    so it is not the E14 of a callable that is missing, and it does not
+    say which kind of slot was meant, so E30 and E39 have nothing to
+    decide; two implementations had reported those three (section 14).
+  - A string attribute under `/notes` is held to the string encoding of
+    section 18 (E19, E26). One implementation did so, one only for a
+    variable-length string and NUL bytes, and two not at all, so a note
+    stored in ASCII opened in two languages and not in the others
+    (section 11).
+  - E18 is reported at the object the public thing is missing from, once
+    for each such object, and not at `/private`: the object is what a
+    writer has to fix, and `/private` is the one place a reader may not
+    look. Three implementations had said `/private` and one the first
+    object it found (section 14).
+  - E02 covers a support's `kind` and a slot's `statistic` as it covers a
+    role: each is one word from a closed list, and a word outside it says
+    nothing a reader can act on. Only one implementation had reported an
+    unknown kind (as E39) and only one an unknown statistic (section 14).
+  - A support that declares no kind, or a kind section 6 does not have,
+    has no digest. The kind decides which arrays are hashed, and
+    implementations took such a support for a mesh or hashed its node
+    count alone, so one file had two ids (section 24).
+  - A `category` that names no table in the file is E39 and not E10. E10
+    is a value outside a table that exists; with no table there is
+    nothing to be outside, and implementations had said E10, E39, or
+    nothing at all when the file had no rows (section 14).
   - E11 covers units on a field and a scalar; E39 covers units on a key,
     on coordinates and on a derived array; `weight` and `normal` need none
     (section 14).
@@ -800,6 +861,13 @@ Roles and rules:
   - E25 does not fire where the required dimension name follows from an
     attribute another rule already checks, and a dimension scale is not
     subject to it (section 14).
+  - After E25 on a dataset, the rules decided from that dataset's
+    dimensions are implementation-defined there, and the corpus does not
+    compare them. A reader that cannot name an axis can only guess its
+    length and its role, and the four guessed differently, one adding
+    E04, one E27, one leaving out E31; requiring any one guess would
+    make a reader invent a dimension the file does not state (section
+    14).
   - W03 covers a derived array as well as a field and a scalar, and W12
     applies only to a chunked dataset carrying a row dimension: a
     contiguous dataset is E27 or nothing, and scales and dictionary
@@ -1028,7 +1096,8 @@ HDF5 and compares the raw bytes.
 Names. Every group, dataset, attribute and dimension name in the file
 must be a legal netCDF-4 name: not empty, no "/" and no NUL, not
 beginning or ending with a space, and built from letters, digits,
-underscore, hyphen, "." and "+". Names a producer chooses (keys,
+underscore, hyphen, "." and "+", and the first character is a letter,
+a digit or an underscore. Names a producer chooses (keys,
 scalars, category tables, arrays, support groups, callable ids,
 dictionary keys) must not begin with `mestra_`, which this format
 reserves everywhere in the file and not only in the codec (E33).
@@ -1177,7 +1246,7 @@ It is the only way a callable slot can declare its width.
 `node` when it sits under `node_arrays` and `cell` when it sits under
 `cell_arrays`; its support is the support group it sits under; a
 scalar has neither. `source` is either the string `data` or the string
-`callable:<id>` and nothing else (E36).
+`callable:<id>`, with an id that is not empty, and nothing else (E36).
 
 
 20. Cells and cell types
@@ -1577,6 +1646,11 @@ to 4, so it breaks E38 and its digest still matches. This is the same
 choice as the paragraph above, for the same reason: one broken rule
 should not make a second rule fire as well.
 
+A support that declares no kind (E39), or a kind section 6 does not
+have (E02), has no digest. Nothing says which steps it takes, and an
+implementation must not compute one by taking it for a mesh or for
+anything else: it refuses, and E08 is not decided for it.
+
 The attribute is the digest in lower-case hexadecimal, 64 characters.
 A digest that does not match the stored arrays is an error (E08).
 
@@ -1922,7 +1996,9 @@ expected.json is canonical JSON (below) with exactly these fields:
                 produce, with no duplicates. A file that must validate
                 cleanly has two empty lists.
   support_ids   an object from support group name to the 64-character
-                lower-case hexadecimal digest
+                lower-case hexadecimal digest. A support that has no
+                digest (section 24) is not in it, and an implementation
+                must refuse to compute one for it
   probes        a list of objects, each naming one stored value:
                   slot       the HDF5 path of the dataset, for example
                              "/supports/s0/node_arrays/pressure"
@@ -2162,3 +2238,68 @@ units in part-name order gives:
 and each part's rows are the rows whose `rotor` value is one of its
 units. An implementation that reproduces this table reproduces every
 split, because nothing else in the algorithm depends on the file.
+
+
+32. Units grammar
+-----------------
+
+A units string parses when it matches this grammar, whatever names it
+uses (W10). It is the UDUNITS-2 grammar in the forms CF files use, with
+one widening: the power after "^" or "**" may be any number, so that
+"s^0.5" parses where UDUNITS-2 takes only an integer. Deciding the
+verdict needs no unit database; converting between units does, and is
+a tool's business.
+
+    units      = { sp } product [ shift ] { sp }
+    product    = power { [ operator ] power }
+    operator   = { sp } ( "*" | "." | "-" | "/" | "per" ) { sp }
+               | sp { sp }
+    power      = basic [ integer | ( "^" | "**" ) number ]
+    basic      = name | number | "(" units ")"
+               | ( "log" | "lg" | "ln" | "lb" ) logref
+    logref     = "(" { sp } "re" ( ":" { sp } | sp { sp } ) product
+                 { sp } ")"
+    shift      = { sp } ( "@" | "since" | "from" | "after" | "ref" )
+                 { sp } ( timestamp | number )
+    timestamp  = date [ ( "T" | sp { sp } ) clock [ { sp } zone ] ]
+    date       = [ sign ] digit { digit } "-" digit [ digit ]
+                 [ "-" digit [ digit ] ]
+    clock      = digit [ digit ] ":" digit digit
+                 [ ":" digit digit [ "." { digit } ] ]
+    zone       = name | sign digit [ digit ] [ [ ":" ] digit digit ]
+    number     = [ sign ] ( digit { digit } [ "." { digit } ]
+                          | "." digit { digit } )
+                 [ ( "e" | "E" ) [ sign ] digit { digit } ]
+    integer    = [ sign ] digit { digit }
+    name       = letter { letter | digit }
+    letter     = "A" to "Z" | "a" to "z" | "_" | "%" | "'" | '"'
+               | any character outside ASCII
+    sign       = "+" | "-"
+    digit      = "0" to "9"
+    sp         = " "
+
+A string is matched from the left, each rule taking as much as it can,
+and five readings are fixed so that one string has one verdict:
+
+  - The trailing digits of a name are its power and not part of it:
+    "m2" is m squared and "m2s" is one name.
+  - An `integer` power follows its basic with nothing between: "m-1" is
+    m to the power -1, "m -1" is m times -1, "m-s" is m times s, and
+    "m+s" does not parse.
+  - "per", "since", "from", "after" and "ref" are operators only where
+    an operator can stand, after a power, and only as whole words, not
+    followed by a letter or a digit; anywhere else they are names. So
+    "per s" is a product of two names, and "m per" lacks the power its
+    "per" needs.
+  - After a name "log", "lg", "ln" or "lb", a "(" followed by "re" and
+    then ":" or a space opens a `logref`; any other "(" opens a group.
+  - A shift's operand is a timestamp when one matches and a number
+    otherwise, and a clock or a zone that does not match is not part of
+    the timestamp.
+
+The empty string and a string of spaces do not parse, and the only
+space is U+0020, so a string holding a tab does not parse. Nor does a
+string longer than 4096 bytes in UTF-8, or one whose parentheses, of
+groups and of log references together, nest more than 32 deep; the
+string comes out of a file, and the two bounds keep a recursive parser
+safe on it.
