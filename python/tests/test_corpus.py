@@ -19,14 +19,22 @@ VALID = corpus.valid_case_names()
 
 
 def test_the_corpus_is_where_it_should_be():
-    """130 cases: the band added five, of which `band_stored`,
+    """151 cases: the band added five, of which `band_stored`,
     `affine_band` and `warn_w16` are files a reader accepts and
     `err_e12_band` and `err_e12_callable` are not; served coordinates
-    added `callable_coordinates`. `wide_keys` is generated on demand,
-    as vectors/README.md says: `python vectors/generate.py
+    added `callable_coordinates`; the units grammar of section 32
+    added six `units_*` files that parse and `warn_w10_dangling_per`,
+    which does not; three `err_e39_category_*` files name a table the
+    file does not have; three `err_e02_*` files carry a kind or
+    a statistic that is not a word of the format; `err_e39_kind_mesh`
+    has no digest; three `*_notes*` files store a note's string as no
+    string may be stored; two `err_e36_empty_id*` files name no
+    callable; two `err_e33_leading_*` files begin a name with a
+    character only its middle may hold. `wide_keys` is generated on demand, as
+    vectors/README.md says: `python vectors/generate.py
     --on-demand`."""
-    assert len(CASES) == 130
-    assert len(VALID) == 49
+    assert len(CASES) == 151
+    assert len(VALID) == 56
     assert len(WITH_CODEC) == 12
 
 
@@ -157,3 +165,19 @@ def test_the_description_matches_the_manifest(name):
     described = {case["name"]: case["description"]
                  for case in manifest["cases"]}
     assert described[name] == corpus.expected(name)["description"]
+
+
+#: The rules section 14 leaves implementation-defined at a dataset that
+#: draws E25, because they are decided from the dimensions E25 says
+#: the reader does not know.
+AFTER_E25 = {"E04", "E05", "E16", "E27", "E31", "E34", "E43", "W12"}
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_no_case_compares_what_follows_an_e25(name):
+    """Section 14: the corpus does not compare what a reader finds from
+    the dimensions of a dataset that draws E25, so no file that expects
+    E25 expects one of those rules anywhere."""
+    want = corpus.expected(name)["validator"]
+    if "E25" in want["errors"]:
+        assert not AFTER_E25 & set(want["errors"] + want["warnings"])

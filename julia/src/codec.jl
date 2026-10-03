@@ -268,6 +268,10 @@ function legal_name(name::AbstractString)
     occursin('/', name) && return false
     occursin('\0', name) && return false
     (startswith(name, ' ') || endswith(name, ' ')) && return false
+    # Section 18: the first character is a letter, a digit or an
+    # underscore, as netCDF-C requires.
+    first = name[firstindex(name)]
+    (isletter(first) || isdigit(first) || first == '_') || return false
     for c in name
         ok = isletter(c) || isdigit(c) || c == '_' || c == '-' ||
              c == '.' || c == '+'

@@ -2444,6 +2444,25 @@ def then(builder, change):
     return build
 
 
+def support_kind_absent(f):
+    """The support does not say what kind it is."""
+    del f["supports/s0"].attrs["kind"]
+
+
+def support_kind_grid(f):
+    """The support says it is a "grid", a kind section 6 does not have."""
+    support = f["supports/s0"]
+    del support.attrs["kind"]
+    sattr(support, "kind", "grid")
+
+
+def label_table_elsewhere(f):
+    """The region label names a table, "zone", the file does not have."""
+    region = f["supports/s0/cell_arrays/region"]
+    del region.attrs["category"]
+    sattr(region, "category", "zone")
+
+
 def big_endian_attr(obj, name, value):
     """An integer attribute stored big-endian, which section 18 does
     not allow: it names H5T_STD_I64LE."""
@@ -2658,6 +2677,23 @@ CASES = {
         mesh_base, {"mach_no_role": True},
         "A key with no role attribute.",
         errors=["E02"], support_ids={"s0": MESH_SID}),
+    "err_e02_kind": mk(
+        then(mesh_base, support_kind_grid), {},
+        "A support whose kind is \"grid\", which is not one of the "
+        "three kinds of section 6. It has no digest (section 24).",
+        errors=["E02"], support_ids={}),
+    "err_e02_statistic": mk(
+        mesh_base, {"pressure_extra": [("statistic", "median"),
+                                       ("of", "pressure")]},
+        "A node array whose statistic is \"median\", which is not one "
+        "of the six statistics of section 9.",
+        errors=["E02"], support_ids={"s0": MESH_SID}),
+    "err_e02_statistic_without_of": mk(
+        mesh_base, {"cl_extra": [("statistic", "median")]},
+        "A scalar whose statistic is not a word of section 9 and that "
+        "names no base quantity. E12 decides what a statistic needs "
+        "from its word, so it has nothing to say here.",
+        errors=["E02"], support_ids={"s0": MESH_SID}),
     "err_e03": mk(
         mesh_base, {"extra_keys": [
             ("t1", "time", [0.0, 1.0], "<f8",
@@ -2844,6 +2880,19 @@ CASES = {
         "18 names little-endian int64, so the value is refused whatever "
         "it decodes to.",
         errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_notes_ascii": mk(
+        then(mesh_base, lambda f: string_attr_as(
+            f.create_group("notes"), "solver", "fun3d",
+            h5py.h5t.CSET_ASCII, h5py.h5t.STR_NULLPAD)), {},
+        "A note stored as an ASCII string. /notes is free-form in what "
+        "it says and not in how it stores a string (section 11).",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
+    "err_e19_notes_vlen": mk(
+        then(mesh_base, lambda f: vattr(f.create_group("notes"),
+                                        "solver", "fun3d")), {},
+        "A note stored as a variable-length string, which section 18 "
+        "forbids anywhere in the file.",
+        errors=["E19"], support_ids={"s0": MESH_SID}),
     "err_e19_string_encoding": mk(
         then(mesh_base, strings_not_utf8_nulpad), {},
         "Two units attributes that are fixed-length strings but not the "
@@ -2955,6 +3004,12 @@ CASES = {
         "A category table entry with a NUL byte in the middle of the "
         "string rather than in its trailing padding.",
         errors=["E26"], support_ids={"s0": MESH_SID}),
+    "err_e26_notes": mk(
+        then(mesh_base, lambda f: rattr(f.create_group("notes"),
+                                        "solver", b"fun\x003d")), {},
+        "A note holding a NUL byte before its padding, which no string "
+        "in the file may hold (section 18).",
+        errors=["E26"], support_ids={"s0": MESH_SID}),
     "err_e27": mk(
         mesh_base, {"cl_contiguous": True},
         "A row-dimensioned dataset stored contiguously instead of "
@@ -3019,6 +3074,16 @@ CASES = {
         "A key whose name ends in a newline, which is not a character a "
         "netCDF-4 name may hold.",
         errors=["E33"], support_ids={"s0": MESH_SID}),
+    "err_e33_leading_dot": mk(
+        mesh_base, {"mach_name": ".mach"},
+        "A key whose name begins with \".\". Section 18 allows \".\" "
+        "inside a name and not as its first character.",
+        errors=["E33"], support_ids={"s0": MESH_SID}),
+    "err_e33_leading_hyphen": mk(
+        mesh_base, {"mach_name": "-mach"},
+        "A key whose name begins with a hyphen, which section 18 allows "
+        "inside a name and not as its first character.",
+        errors=["E33"], support_ids={"s0": MESH_SID}),
     "err_e33_dictionary": mk(
         then(affine_base, lambda f: sattr(f["callables/m1/outputs/cl"],
                                           "fitted@march", "yes")),
@@ -3039,6 +3104,18 @@ CASES = {
     "err_e36": mk(
         mesh_base, {"cl_source": "model"},
         "A source that is neither data nor callable:<id>.",
+        errors=["E36"], support_ids={"s0": MESH_SID}),
+    "err_e36_empty_id": mk(
+        mesh_base, {"cl_as_group": True, "cl_source": "callable:"},
+        "A slot stored as a group whose source is \"callable:\" with no "
+        "id. It names no callable, so it is E36 and not E14, and the "
+        "output a served slot names is not asked of it.",
+        errors=["E36"], support_ids={"s0": MESH_SID}),
+    "err_e36_empty_id_dataset": mk(
+        mesh_base, {"cl_source": "callable:"},
+        "The slot of err_e36_empty_id stored as a dataset. Its source "
+        "says neither data nor a callable, so E30 has nothing to compare "
+        "the storage with.",
         errors=["E36"], support_ids={"s0": MESH_SID}),
     "err_e36_group": mk(
         affine_base, {"cl_source": "row=99"},
@@ -3100,6 +3177,29 @@ CASES = {
         "zero-length row axis. Its shape is (0, 6, 1) and stays that "
         "through a rewrite. Neither group category is used.",
         warnings=["W07"], support_ids={"s0": MESH_SID}),
+    "err_e39_category_key": mk(
+        mesh_base, {"extra_keys": [
+            ("regime", "categorical", [0, 1], "<i4",
+             [("category", "regime")])]},
+        "A categorical key whose category names a table the file does "
+        "not have. There is no table for a value to be outside, so it "
+        "is not E10.",
+        errors=["E39"], support_ids={"s0": MESH_SID}),
+    "err_e39_category_label": mk(
+        then(mesh_base, label_table_elsewhere), {},
+        "A label whose category names a table the file does not have. "
+        "A label may have no table at all, but one it names must exist.",
+        errors=["E39"], support_ids={"s0": MESH_SID}),
+    "err_e39_category_zero_rows": mk(
+        mesh_base, {"n_rows": 0, "mach_values": [], "member_values": [],
+                    "cl_values": [], "pressure": np.zeros((0, 6, 1)),
+                    "extra_keys": [
+                        ("regime", "categorical", [], "<i4",
+                         [("category", "regime")])]},
+        "The missing table of err_e39_category_key in a file with no "
+        "rows: the rule is about the attribute and not the values. "
+        "W07 is the group table no row uses.",
+        errors=["E39"], warnings=["W07"], support_ids={"s0": MESH_SID}),
     "err_e39_kind": mk(
         lambda f, o: (case_support_kind_none(f),
                       f["supports/s0"].attrs.__delitem__("kind")),
@@ -3107,8 +3207,14 @@ CASES = {
         "The support of kind none without its kind. That is E39, and no "
         "rule that depends on the kind applies to a support that does not "
         "say it: it is not taken for a mesh missing its cells and its "
-        "coordinates. Its digest is n_nodes alone whatever the kind.",
-        errors=["E39"], support_ids={"s0": NONE_SID}),
+        "coordinates, and it has no digest (section 24).",
+        errors=["E39"], support_ids={}),
+    "err_e39_kind_mesh": mk(
+        then(mesh_base, support_kind_absent), {},
+        "A mesh support without its kind. It has no digest, though the "
+        "one it would have as a mesh is stored beside it, so E08 is not "
+        "decided for it either.",
+        errors=["E39"], support_ids={}),
     "err_e39_varies": mk(
         then(mesh_base, lambda f: f["supports/s0/node_arrays/pressure"]
              .attrs.__delitem__("varies")), {},
@@ -3166,6 +3272,43 @@ CASES = {
         "and no other rule catches: E11 covers a field and a scalar, "
         "not a key.",
         errors=["E39"], support_ids={"s0": MESH_SID}),
+
+    # ------------------------------------------- units of section 32
+    # Each of these is grammatical and must not draw W10. Before the
+    # grammar was written out, at least one implementation refused
+    # each of them.
+    "units_dot_product": mk(
+        mesh_base, {"mach_units": "m.s-1"},
+        "Units written as a product by \".\", with an integer power "
+        "after the second name.",
+        support_ids={"s0": MESH_SID}),
+    "units_dot_powers": mk(
+        mesh_base, {"mach_units": "kg.m.s-2"},
+        "Three names in a product by \".\", the last with a "
+        "negative power.",
+        support_ids={"s0": MESH_SID}),
+    "units_fractional_power": mk(
+        mesh_base, {"mach_units": "s^0.5"},
+        "A power after \"^\" that is not an integer, the one place "
+        "section 32 is wider than UDUNITS-2.",
+        support_ids={"s0": MESH_SID}),
+    "units_star_power": mk(
+        mesh_base, {"mach_units": "m**2"},
+        "A power written with \"**\".",
+        support_ids={"s0": MESH_SID}),
+    "units_time_since": mk(
+        mesh_base, {"extra_keys": [
+            ("t", "time", [0.0, 1.0], "<f8",
+             [("units", "days since 2000-01-01"),
+              ("trajectory_group", "member")])]},
+        "A time key whose units carry a shift to a date, as CF time "
+        "coordinates do.",
+        support_ids={"s0": MESH_SID}),
+    "units_unknown_name": mk(
+        mesh_base, {"mach_units": "ppm"},
+        "A name no unit table in this repository holds. The verdict "
+        "is the grammar's and not a table's, so it parses.",
+        support_ids={"s0": MESH_SID}),
 
     # -------------------------------------------------------- warnings
     "warn_w01": mk(
@@ -3237,6 +3380,11 @@ CASES = {
         mesh_base, {"mach_units": "kg/(m s"},
         "A units string with an unbalanced parenthesis, which no "
         "UDUNITS parser accepts.",
+        warnings=["W10"], support_ids={"s0": MESH_SID}),
+    "warn_w10_dangling_per": mk(
+        mesh_base, {"mach_units": "m per"},
+        "A units string ending in \"per\", which section 32 reads as "
+        "an operator after a power with no power after it.",
         warnings=["W10"], support_ids={"s0": MESH_SID}),
     "warn_w11": mk(
         mesh_base, {"unknown_root_attr": True,

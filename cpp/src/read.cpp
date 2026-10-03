@@ -609,7 +609,21 @@ std::string support_id_of(const std::string& path,
   }
   const Attrs at(f, sp);
   const std::int64_t n_nodes = at.integer("n_nodes").value_or(0);
-  const std::string kind = at.text("kind").value_or(std::string());
+  // The declared kind decides which arrays are hashed, so a support
+  // that declares none, or one section 6 does not have, has no digest
+  // (section 24) and is not taken for a mesh.
+  const std::optional<std::string> declared = at.text("kind");
+  if (!declared.has_value()) {
+    throw Error("E39", "support \"" + support +
+                           "\" does not say its kind, so it has no "
+                           "support_id");
+  }
+  const std::string kind = *declared;
+  if (kind != "mesh" && kind != "axis" && kind != "none") {
+    throw Error("E02", "support \"" + support + "\" is of kind \"" + kind +
+                           "\", which section 6 does not have, so it has "
+                           "no support_id");
+  }
   std::vector<std::uint8_t> types;
   std::vector<std::int64_t> offsets;
   std::vector<std::int64_t> conn;

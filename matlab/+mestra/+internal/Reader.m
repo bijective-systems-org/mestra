@@ -258,6 +258,14 @@ classdef Reader
                     % is not a second finding; a dataset there is held
                     % to the byte-level rules like any public dataset.
                     mestra.internal.Reader.noteLinks(d, g, '/notes');
+                    % Its attributes are free-form, and a string among
+                    % them is still stored as section 18 stores every
+                    % string (section 11).
+                    found = mestra.internal.Attrs.freeFindings(g);
+                    for i = 1:numel(found)
+                        mestra.internal.Reader.note(d, '/notes', ...
+                            found(i).id, found(i).message);
+                    end
                     for name = H5.children(g)
                         if ~strcmp(H5.childType(g, name{1}), 'dataset')
                             continue

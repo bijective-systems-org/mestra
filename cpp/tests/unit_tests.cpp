@@ -109,6 +109,48 @@ void support_id_vectors() {
       "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc");
 }
 
+// Section 24: the declared kind decides which arrays are hashed, so a
+// support that declares none, or one section 6 does not have, has no
+// digest.  Both of these took such a support for a mesh.
+void support_id_needs_a_kind() {
+  const auto refusal = [](const std::function<void()>& ask) {
+    try {
+      ask();
+    } catch (const mestra::Error& e) {
+      return e.rule();
+    }
+    return std::string("none");
+  };
+  mestra::Support s;
+  s.name = "s0";
+  s.n_nodes = 6;
+  s.cell_types = {9, 9};
+  s.cell_offsets = {0, 4, 8};
+  s.cell_connectivity = {0, 1, 4, 3, 1, 2, 5, 4};
+  s.kind = "";
+  check::equal("a support without its kind has no digest",
+               refusal([&] { s.computed_support_id(); }),
+               std::string("E39"));
+  s.kind = "grid";
+  check::equal("a support of a kind section 6 does not have has no digest",
+               refusal([&] { s.computed_support_id(); }),
+               std::string("E02"));
+  check::equal(
+      "nor does a kind-less support in a file",
+      refusal([] {
+        mestra::support_id_of("../../vectors/cases/err_e39_kind_mesh/case.mes",
+                              "s0");
+      }),
+      std::string("E39"));
+  check::equal(
+      "nor a support of an unknown kind in a file",
+      refusal([] {
+        mestra::support_id_of("../../vectors/cases/err_e02_kind/case.mes",
+                              "s0");
+      }),
+      std::string("E02"));
+}
+
 void units_parser() {
   // Everything the corpus carries must parse.
   for (const char* good : {"1", "m", "Pa", "degree", "s", "K", "W",
@@ -126,6 +168,36 @@ void units_parser() {
   // refused rather than recursed on.
   check::is_true("a deep run of parentheses is refused",
                  !mestra::units_parse(std::string(100000, '(') + "m"));
+
+  // The verdicts of section 32 on the strings the four implementations
+  // were compared on, and a few more that pin one reading each. Every
+  // implementation carries this list.
+  for (const char* good : {
+           "1", "Pa", "m s-1", "W m-2", "m2 s-2", "kg m-3", "m/s",
+           "m s^-1", "m**2", "m.s-1", "m*s", "(m)", "((m))", "m (s)",
+           "%", "%%", "m%", "degree", "degree_C", "degC", "K", "km",
+           "mm", "um", "\xc2\xb5m", "\xce\xbcm", "\xc2\xb0",
+           "\xc2\xb0" "C", "rad", "sr", "1e3 m", "10 m", "0.5 m", "-1",
+           "m-1", "m+2", "m^2", "m^-2", "m^+2", "s^0.5", "per s",
+           "m per s", "days since 2000-01-01",
+           "seconds since 1970-01-01T00:00:00Z",
+           "hours since 2000-01-01 00:00:00", "K @ 273.15",
+           "lg(re 1 mW)", "log(re 1)", "qux", "furlong", "m m", "m  s",
+           " m", "m ", "mol", "cd", "A", "N", "J", "W", "V", "Ohm",
+           "ohm", "S", "Hz", "dB", "count", "percent", "ppm", "1/s",
+           "kg.m.s-2", "m2.s-1",
+           // "m -1" is m times -1, "m-s" is m times s, "m2s" one name.
+           "m -1", "m-s", "m2s", "m^-2.5", "lg(re: 1 mW)", "log(m)"}) {
+    check::is_true(std::string("section 32 accepts \"") + good + "\"",
+                   mestra::units_parse(good));
+  }
+  // "+" is a sign of a power and never an operator; the only space is
+  // U+0020.
+  for (const char* bad : {"m per", "/s", "s/", "m//s", "m*/s", "m+s",
+                          "m\ts", "  "}) {
+    check::is_true(std::string("section 32 refuses \"") + bad + "\"",
+                   !mestra::units_parse(bad));
+  }
 }
 
 void codec_values() {
@@ -525,6 +597,13 @@ void conventions_builders() {
   check::equal("a reserved name is refused at build time",
                rule_of([&d] { d.add_scalar("mestra_x", {0.0}, "1"); }),
                std::string("E33"));
+  // Section 18: a name begins with a letter, a digit or an underscore.
+  // "." was legal, and HDF5 reads it as the group itself.
+  for (const char* name : {".", ".x", "-x", "+x"}) {
+    check::equal(std::string("\"") + name + "\" is refused at build time",
+                 rule_of([&d, name] { d.add_scalar(name, {0.0}, "1"); }),
+                 std::string("E33"));
+  }
 }
 
 void conventions_dims() {
@@ -1559,6 +1638,38 @@ void append_rows_grows_a_file() {
   std::remove(grown.c_str());
 }
 
+// E18 goes beside the rule that found the public thing missing, at
+// each object it is missing from (section 14).  This reported it once,
+// at the first such object, whatever else was missing.
+void e18_at_each_object() {
+  const auto where_e18 = [](const std::string& path) {
+    std::vector<std::string> out;
+    for (const mestra::Finding& f : mestra::validate(path).errors) {
+      if (f.id == "E18") out.push_back(f.where);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  check::is_true("E18 beside a missing root attribute, at the root",
+                 where_e18("../../vectors/cases/err_e18/case.mes") ==
+                     std::vector<std::string>{"/"});
+  const std::string two = "mestra_unit_e18.mes";
+  std::remove(two.c_str());
+  {
+    std::ifstream in("../../vectors/cases/err_e18_role/case.mes",
+                     std::ios::binary);
+    std::ofstream out(two, std::ios::binary);
+    out << in.rdbuf();
+  }
+  const hid_t f = H5Fopen(two.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  H5Adelete_by_name(f, "/keys/mach", "units", H5P_DEFAULT);
+  H5Fclose(f);
+  const std::vector<std::string> want{"/keys/flow", "/keys/mach"};
+  check::is_true("E18 at each of two objects something is missing from",
+                 where_e18(two) == want);
+  std::remove(two.c_str());
+}
+
 // E40 is a link anywhere in the public tree.  The validator once
 // looked only where it enumerated members for its own reasons, which
 // left out /notes and the group a callable slot is; a strict read
@@ -1647,6 +1758,7 @@ void an_axis_on_an_unnamed_object() {
 int main() {
   sha256_vectors();
   support_id_vectors();
+  support_id_needs_a_kind();
   units_parser();
   codec_values();
   affine_worked_example();
@@ -1664,6 +1776,7 @@ int main() {
   bytes_order();
   append_rows_grows_a_file();
   links_anywhere_public();
+  e18_at_each_object();
   unrepresentable_dictionary_entries();
   an_axis_on_an_unnamed_object();
   return check::finish("mestra unit tests");

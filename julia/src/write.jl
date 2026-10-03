@@ -297,7 +297,7 @@ function prepare_for_write!(ds::Dataset)
         reserved(s.name) && throw(MestraError("E33", s.path,
             "`$(s.name)` begins with the reserved prefix `mestra_`; " *
             "rename the slot"))
-        s.source == "data" || startswith(s.source, "callable:") ||
+        s.source == "data" || is_callable_source(s.source) ||
             throw(MestraError("E36", s.path,
                 "`source` is `data` or `callable:<id>`, not " *
                 "`$(s.source)`; call `set_callable!(slot, id, output)`"))

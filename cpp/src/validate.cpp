@@ -228,10 +228,23 @@ class Validator {
   // callable serves, one a callable produces (section 10).
   void check_statistic(const std::string& path,
                        const std::vector<RawAttr>& attrs) {
-    const std::string statistic = text_of(attrs, "statistic");
-    if (statistic.empty()) return;
+    // A statistic that is not text is E19 and names nothing to check.
+    const RawAttr* given = find(attrs, "statistic");
+    if (given == nullptr || given->value.kind() != AttrValue::Kind::Str) {
+      return;
+    }
+    const std::string statistic = given->value.as_text();
+    // A word section 9 does not name is E02. What a statistic needs
+    // follows from its word, so E12 has nothing to decide for it.
+    if (statistic != "value" && statistic != "mean" && statistic != "band" &&
+        statistic != "std" && statistic != "quantile" &&
+        statistic != "draw") {
+      error("E02", path,
+            "\"" + statistic + "\" is not a statistic of section 9");
+      return;
+    }
     const std::string source = text_of(attrs, "source");
-    const bool served = source.compare(0, 9, "callable:") == 0;
+    const bool served = !internal::callable_of_source(source).empty();
     if (statistic == "quantile" && find(attrs, "quantile") == nullptr) {
       error("E12", path, "a quantile statistic with no `quantile`");
     }
@@ -723,23 +736,32 @@ void Validator::unknown_dataset(const std::string& path,
 }
 
 void Validator::private_group() {
-  // E18 is reported beside the rule that found the
-  // missing public thing, in a file that also carries /private.  A
-  // writer that moved the public thing into the private part is what
-  // the rule is about; these are the two facts a reader can see, and
-  // it never interprets /private to see them.
+  // E18 is reported beside the rule that found the missing public
+  // thing, at each object it is missing from, in a file that also
+  // carries /private.  A writer that moved the public thing into the
+  // private part is what the rule is about; these are the two facts a
+  // reader can see, and it never interprets /private to see them.
   if (!f_.is_group("/private")) return;
   static const char* kCovered[] = {"E02", "E11", "E13", "E15",
                                    "E17", "E31", "E39"};
+  // One E18 per object, naming every rule that fired there.
+  std::vector<std::pair<std::string, std::string>> missing;
   for (const Finding& f : r_->errors) {
     for (const char* id : kCovered) {
-      if (f.id == id) {
-        error("E18", f.where,
-              std::string("a required public thing is absent (") + id +
-                  ") in a file that also carries a /private group");
-        return;
+      if (f.id != id) continue;
+      auto at = std::find_if(missing.begin(), missing.end(),
+                             [&](const auto& m) { return m.first == f.where; });
+      if (at == missing.end()) {
+        missing.emplace_back(f.where, id);
+      } else {
+        at->second += std::string(", ") + id;
       }
     }
+  }
+  for (const auto& [where, ids] : missing) {
+    error("E18", where,
+          "a required public thing is absent here (" + ids +
+              ") in a file that also carries a /private group");
   }
 }
 
@@ -807,10 +829,21 @@ void Validator::root() {
   }
   // /notes is free-form, so nothing there is unknown (no W11), but
   // section 18 still holds: legal names, no variable-length string
-  // anywhere in the file, and valid UTF-8.  /private is not looked at
-  // at all, which section 29 requires.
+  // anywhere in the file, valid UTF-8, and a string stored as section
+  // 18 stores every string (section 11).  A number there is the
+  // producer's choice.  /private is not looked at at all, which
+  // section 29 requires.
   if (f_.is_group("/notes")) {
-    check_attribute_encodings("/notes", f_.attributes("/notes"));
+    const std::vector<RawAttr> notes = f_.attributes("/notes");
+    check_attribute_encodings("/notes", notes);
+    for (const RawAttr& a : notes) {
+      if (a.type.klass == H5T_STRING && !a.type.variable_length &&
+          (a.type.cset != H5T_CSET_UTF8 || a.type.strpad != H5T_STR_NULLPAD)) {
+        error("E19", "/notes",
+              "the attribute \"" + a.name +
+                  "\" is a string that is not UTF-8 padded with NUL");
+      }
+    }
     links_in("/notes");
   }
 
@@ -1431,6 +1464,12 @@ void Validator::supports() {
     bool has_kind = false;
     const std::string kind = text_of(attrs, "kind", &has_kind);
     if (!has_kind) error("E39", sp, "a support with no `kind`");
+    const RawAttr* kind_attr = find(attrs, "kind");
+    if (kind_attr != nullptr &&
+        kind_attr->value.kind() == AttrValue::Kind::Str && kind != "mesh" &&
+        kind != "axis" && kind != "none") {
+      error("E02", sp, "\"" + kind + "\" is not a kind of support of section 6");
+    }
     const RawAttr* n_nodes_attr = find(attrs, "n_nodes");
     const RawAttr* n_cells_attr = find(attrs, "n_cells");
     if (n_nodes_attr == nullptr) error("E39", sp, "no `n_nodes`");

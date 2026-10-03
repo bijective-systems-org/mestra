@@ -50,7 +50,7 @@ from .encoding import (
 )
 from .errors import MestraError
 from .model import ArraySlot, Dataset, Key, Support
-from .names import disk_dimension
+from .names import disk_dimension, is_legal_name, is_reserved
 
 __all__ = ["write"]
 
@@ -106,6 +106,7 @@ def write(dataset: Dataset, path: str, check: bool = True) -> None:
             "them" % ", ".join(sorted(dataset.lossy)[:4]), str(path))
     target = Path(path)
     _refuse_a_destination_that_cannot_take_a_file(str(path), target)
+    _refuse_names(dataset, str(path), every_rule=check)
     if check:
         _refuse_what_the_validator_would(dataset, str(path))
     try:
@@ -148,6 +149,41 @@ def _refuse_a_destination_that_cannot_take_a_file(path: str,
         raise MestraError("", "the directory %s is not writable; the "
                               "file is staged and published there"
                           % parent, path)
+
+
+def _producer_names(dataset: Dataset) -> Iterable[tuple[str, str]]:
+    """Every name a producer chose, with the path it is written at."""
+    for kind, names in (("categories", dataset.categories),
+                        ("keys", dataset.keys),
+                        ("scalars", dataset.scalars),
+                        ("callables", dataset.callables)):
+        for name in names:
+            yield "/%s/%s" % (kind, name), name
+    for sname, support in dataset.supports.items():
+        where = "/supports/" + sname
+        yield where, sname
+        for location, slots in (("node_arrays", support.node_arrays),
+                                ("cell_arrays", support.cell_arrays)):
+            for name in slots:
+                yield "%s/%s/%s" % (where, location, name), name
+
+
+def _refuse_names(dataset: Dataset, path: str, every_rule: bool) -> None:
+    """E33 before anything is staged. A name section 18 does not allow
+    is refused when the write checks the rules; one HDF5 cannot hold
+    as a link at all, such as "." or one with a "/", is refused even
+    when it does not, because the library would fail halfway through
+    the file rather than write it."""
+    for where, name in _producer_names(dataset):
+        unwritable = (not isinstance(name, str) or name in ("", ".")
+                      or "/" in name or "\0" in name)
+        if unwritable or (every_rule and (not is_legal_name(name)
+                                          or is_reserved(name))):
+            raise MestraError(
+                "E33", "%r is not a name this file can hold (section 18): "
+                "letters, digits, underscore, hyphen, . and + only, "
+                "beginning with a letter, a digit or an underscore, and "
+                "not beginning with mestra_; rename it" % (name,), where)
 
 
 def _refuse_what_the_validator_would(dataset: Dataset,

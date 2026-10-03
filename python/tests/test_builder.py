@@ -455,6 +455,37 @@ def test_a_name_netcdf4_would_refuse():
     assert caught.value.rule == "E33"
 
 
+@pytest.mark.parametrize("name", [".", ".mach", "-mach", "+mach"])
+def test_a_name_must_begin_with_a_letter_a_digit_or_an_underscore(name):
+    """Section 18. "." was a legal name, and h5py reads it as the group
+    itself."""
+    ds = mestra.Dataset(writer="t")
+    with pytest.raises(MestraError) as caught:
+        ds.add_key(name, [1.0], role="condition", units="1")
+    assert caught.value.rule == "E33"
+    with pytest.raises(MestraError) as caught:
+        ds.add_category_table(name, ["a"])
+    assert caught.value.rule == "E33"
+
+
+@pytest.mark.parametrize("check", [True, False])
+def test_the_writer_refuses_a_name_hdf5_cannot_hold(tmp_path, check):
+    """A key renamed to "." after it was built reached h5py, which
+    failed halfway through the file. The writer refuses it first, even
+    when told not to check, and leaves nothing behind."""
+    ds = mestra.Dataset(writer="t", created="2026-01-01T00:00:00Z")
+    ds.add_key("mach", [0.4, 0.8], role="condition", units="1")
+    ds.add_scalar("cl", [0.1, 0.2], units="1")
+    key = ds.keys.pop("mach")
+    key.name = "."
+    ds.keys["."] = key
+    out = tmp_path / "out.mes"
+    with pytest.raises(MestraError) as caught:
+        mestra.write(ds, str(out), check=check)
+    assert caught.value.rule == "E33"
+    assert os.listdir(tmp_path) == []
+
+
 def test_rows_must_agree():
     ds = mestra.Dataset(writer="t")
     ds.add_key("mach", [0.4, 0.8], role="condition", units="1")

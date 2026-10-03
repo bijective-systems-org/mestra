@@ -35,7 +35,9 @@ from .model import (
     KEY_ROLES,
     STATISTICS,
     STATUS_WORDS,
+    SUPPORT_KINDS,
     Dataset,
+    is_callable_source,
 )
 from .names import MACHINERY, RESERVED_PREFIX, is_legal_name
 from .units import is_parseable
@@ -468,18 +470,21 @@ class _FileValidator:
 
         Section 29 forbids a validator to interpret /private, so all
         it can say is that public information is missing from a file
-        that carries one.
+        that carries one. It says so at each object the information is
+        missing from, beside the rule that found it (section 14).
         """
         if "private" not in getattr(self, "root", {}):
             return
-        missing = [f for f in self.report.errors
-                   if f.rule in _MISSING_PUBLIC]
-        if missing:
+        missing: dict[str, set[str]] = {}
+        for found in self.report.errors:
+            if found.rule in _MISSING_PUBLIC:
+                missing.setdefault(found.where, set()).add(found.rule)
+        for where, rules in missing.items():
             self.error(
-                "E18", "/private", "public information is missing "
-                "from this file (%s) and the file carries a private "
-                "group; a writer must not put public information only "
-                "there" % ", ".join(sorted({f.rule for f in missing})))
+                "E18", where, "public information is missing here (%s) "
+                "and the file carries a private group; a writer must not "
+                "put public information only there"
+                % ", ".join(sorted(rules)))
 
     # -- category tables
 
@@ -585,7 +590,10 @@ class _FileValidator:
 
     def _categories_of(self, dset: h5py.Dataset, where: str,
                        role: str | None) -> None:
-        """E10 and W07: values against the category table."""
+        """E10 and W07: values against the category table. A table
+        the file does not have is E39 and not E10: the values cannot be
+        checked against nothing, and whether there are any rows to check
+        does not change that."""
         if role not in ("categorical", "group", "split", "status"):
             return
         table_name = _attr(dset, "category")
@@ -593,8 +601,8 @@ class _FileValidator:
             return
         table = self.categories.get(table_name)
         if table is None:
-            self.error("E10", where, "there is no category table "
-                                     "called %r" % table_name)
+            self.error("E39", where, "the category table %r is not "
+                                     "under /categories" % table_name)
             return
         values = self.values(dset, where)
         if values is None:
@@ -782,6 +790,9 @@ class _FileValidator:
         # applies: a support is not taken for a mesh because it did
         # not say what it is.
         kind = _attr(group, "kind")
+        if kind is not None and kind not in SUPPORT_KINDS:
+            self.error("E02", where, "%r is not a kind of support of "
+                                     "section 6" % kind)
         n_nodes = _attr(group, "n_nodes")
         n_nodes = int(n_nodes) if isinstance(n_nodes, int) else 0
         n_cells = _attr(group, "n_cells")
@@ -935,7 +946,7 @@ class _FileValidator:
         """E08: the digest against the stored arrays (section 24)."""
         if "support_id" not in _names(group):
             return
-        if kind not in ("mesh", "axis", "none"):
+        if kind not in SUPPORT_KINDS:
             # The declared kind decides which steps contribute bytes,
             # so a support that declares none has no digest to check.
             return
@@ -1095,14 +1106,15 @@ class _FileValidator:
             self._float64(dset, where, "a %s array" % role)
 
     def _label(self, dset: h5py.Dataset, where: str) -> None:
-        """E10: a label whose table does not hold one of its values."""
+        """E10: a label whose table does not hold one of its values;
+        E39 when the table it names is not in the file."""
         table_name = _attr(dset, "category")
         if table_name is None:
             return                  # its values are its own categories
         table = self.categories.get(table_name)
         if table is None:
-            self.error("E10", where, "there is no category table "
-                                     "called %r" % table_name)
+            self.error("E39", where, "the category table %r is not "
+                                     "under /categories" % table_name)
             return
         values = self.values(dset, where)
         if values is None:
@@ -1609,8 +1621,10 @@ class _FileValidator:
                 self.error("E30", where, "a slot whose source is data "
                                          "is a dataset, not a group")
             return
-        if not isinstance(source, str) or \
-                not source.startswith("callable:"):
+        if not is_callable_source(source):
+            # "callable:" with nothing after it names no callable, so
+            # it is neither word: E36, and nothing that depends on
+            # which kind of slot was meant (E14, E30, E39).
             self.error("E36", where, "source is data or callable:<id>, "
                                      "and this is %r" % (source,))
             return
@@ -1641,8 +1655,7 @@ class _FileValidator:
         served = False
         if "source" in attrs:
             source = read_attr(obj, "source")
-            served = isinstance(source, str) and \
-                source.startswith("callable:")
+            served = is_callable_source(source)
         if statistic == "quantile" and "quantile" not in attrs:
             self.error("E12", where, "a quantile statistic carries its "
                                      "quantile")
@@ -2026,8 +2039,9 @@ def _is_iso_utc(text: Any) -> bool:
 
 def _units_text(units: Any, where: str, error: Any, warn: Any) -> None:
     """E19 for a units that is not text at all, W10 for text that
-    does not parse; an in-memory dataset can hold either."""
-    if units is None or units == "":
+    does not parse; an in-memory dataset can hold either. The empty
+    string is text that does not parse, as it is in a file."""
+    if units is None:
         return
     if not isinstance(units, str):
         error("E19", where, "the attribute units is a string, and this "
@@ -2087,7 +2101,7 @@ def _validate_dataset(ds: Dataset) -> Report:
                   % key.role)
             continue
         counted[key.role] = counted.get(key.role, 0) + 1
-        if key.role in ("design", "condition", "time") and not key.units:
+        if key.role in ("design", "condition", "time") and key.units is None:
             error("E39", where, "a %s key carries units" % key.role)
         _units_text(key.units, where, error, warn)
         bounds: list[tuple[str, Any]] = [("lower", key.lower),
@@ -2144,7 +2158,7 @@ def _validate_dataset(ds: Dataset) -> Report:
 
     for name, slot in sorted(ds.scalars.items()):
         where = "/scalars/" + name
-        if not slot.units:
+        if slot.units is None:
             error("E11", where, "a scalar carries units")
         _units_text(slot.units, where, error, warn)
         _check_source(ds, slot, where, error)
@@ -2168,7 +2182,13 @@ def _validate_dataset(ds: Dataset) -> Report:
         if support.kind == "mesh" and support.cell_types is None:
             error("E38", where, "a mesh support carries cell_types, "
                                 "cell_offsets and cell_connectivity")
+        if support.kind is None:
+            error("E39", where, "a support carries kind")
+        elif support.kind not in SUPPORT_KINDS:
+            error("E02", where, "%r is not a kind of support of section 6"
+                  % support.kind)
         if support.stored_support_id is not None and \
+                support.kind in SUPPORT_KINDS and \
                 support.stored_support_id != support.computed_support_id():
             error("E08", where, "the stored support_id does not match "
                                 "the arrays")
@@ -2188,7 +2208,7 @@ def _validate_dataset(ds: Dataset) -> Report:
             if array.role not in ARRAY_ROLES:
                 error("E02", slot_where, "%r is not an array role of "
                                          "section 3" % array.role)
-            if array.role == "field" and not array.units:
+            if array.role == "field" and array.units is None:
                 error("E11", slot_where, "a field carries units")
             _units_text(array.units, slot_where, error, warn)
             if array.role == "derived" and not (array.derived_from
@@ -2225,7 +2245,7 @@ def _check_source(ds: Dataset, slot: Any, where: str,
             error("E30", where, "a slot whose source is data holds "
                                 "data")
         return
-    if not slot.source.startswith("callable:"):
+    if not is_callable_source(slot.source):
         error("E36", where, "source is data or callable:<id>, and this "
                             "is %r" % slot.source)
         return

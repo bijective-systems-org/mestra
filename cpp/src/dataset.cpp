@@ -153,10 +153,22 @@ std::string Support::computed_support_id() const {
   // arrays, so steps 2 to 4 contribute no bytes at all for it".  The
   // kind decides, not what the file happens to carry, so a file that
   // wrongly puts cell arrays on an axis support breaks E38 and not
-  // E08 as well.
+  // E08 as well.  A support that declares no kind, or one section 6
+  // does not have, has no digest at all.
+  if (kind.empty()) {
+    throw Error("E39", "support \"" + name +
+                           "\" does not say its kind, and the kind decides "
+                           "which of its arrays section 24 hashes, so it "
+                           "has no support_id");
+  }
+  if (kind != "mesh" && kind != "axis" && kind != "none") {
+    throw Error("E02", "support \"" + name + "\" is of kind \"" + kind +
+                           "\", which section 6 does not have, so it has "
+                           "no support_id");
+  }
   static const std::vector<std::uint8_t> kNoTypes;
   static const std::vector<std::int64_t> kNoInts;
-  const bool has_cells = kind != "axis" && kind != "none";
+  const bool has_cells = kind == "mesh";
   if (kind == "axis" && coordinates.has_value()) {
     return support_id_digest(n_nodes, kNoTypes, kNoInts, kNoInts,
                              &coordinates->data.f64);

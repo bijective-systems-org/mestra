@@ -1,0 +1,1 @@
+{"codec":{},"description":"A note stored as an ASCII string. /notes is free-form in what it says and not in how it stores a string (section 11).","evaluation":[],"probes":[],"support_ids":{"s0":"96df395d80ef548444562292de441525ba0b5c8ad00a8dadff19a19c943936c7"},"validator":{"errors":["E19"],"warnings":[]}}

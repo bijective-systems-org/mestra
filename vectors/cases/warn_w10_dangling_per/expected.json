@@ -1,0 +1,1 @@
+{"codec":{},"description":"A units string ending in \"per\", which section 32 reads as an operator after a power with no power after it.","evaluation":[],"probes":[],"support_ids":{"s0":"96df395d80ef548444562292de441525ba0b5c8ad00a8dadff19a19c943936c7"},"validator":{"errors":[],"warnings":["W10"]}}

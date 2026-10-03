@@ -18,6 +18,10 @@ function hex = supportId(support)
 %   "same support" an attribute comparison and not an array
 %   comparison.
 %
+%   The declared kind decides which arrays are hashed, so a support
+%   that declares none has no digest and this raises mestra:E39, and
+%   one whose kind section 6 does not have raises mestra:E02.
+%
 %   The digest is computed in MATLAB by mestra.internal.Sha and not by
 %   any outside library, so the package needs nothing but base MATLAB.
 %
@@ -28,6 +32,18 @@ function hex = supportId(support)
 %
 %   See also mestra.Dataset, mestra.validate.
 
+    if isempty(support.kind)
+        error('mestra:E39', ...
+              ['E39: support %s does not say its kind, and the kind ' ...
+               'decides which of its arrays section 24 hashes, so it ' ...
+               'has no support_id'], support.name);
+    end
+    if ~any(strcmp(support.kind, {'mesh', 'axis', 'none'}))
+        error('mestra:E02', ...
+              ['E02: support %s is of kind "%s", which section 6 does ' ...
+               'not have, so it has no support_id'], ...
+              support.name, support.kind);
+    end
     Sha = mestra.internal.Sha;
     bytes = Sha.int64le(support.nNodes);
     if strcmp(support.kind, 'mesh')
